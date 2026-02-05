@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>學生作品展示平台</title>
+    <!-- Tailwind CSS (樣式框架) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome (圖示) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Noto Sans TC -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6; /* 淺灰背景 */
+        }
+        /* 自訂 Modal 動畫 */
+        .modal {
+            transition: opacity 0.25s ease;
+        }
+        .modal-active {
+            overflow-x: hidden;
+            overflow-y: visible !important;
+        }
+        /* 隱藏卷軸但保留功能 */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* 載入中動畫 */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col">
+
+    <!-- 頂部導覽列 -->
+    <nav class="bg-white shadow-md z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 flex items-center">
+                        <i class="fa-solid fa-graduation-cap text-blue-600 text-2xl mr-2"></i>
+                        <span class="font-bold text-xl tracking-tight text-gray-900">作品展示平台</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <!-- 新增作品按鈕 (移至導覽列，所有人可見) -->
+                    <button onclick="ui.openUploadModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-full text-sm font-medium transition flex items-center shadow">
+                        <i class="fa-solid fa-plus mr-1"></i> 新增作品
+                    </button>
+
+                    <!-- 模式切換按鈕 (需密碼) -->
+                    <button id="roleToggleBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-sm font-medium transition flex items-center">
+                        <i class="fa-solid fa-user mr-1"></i> <span id="roleText">學生模式</span>
+                    </button>
+                    
+                    <!-- 重新整理 -->
+                    <button onclick="app.loadWorks()" class="text-gray-500 hover:text-blue-600 transition p-2">
+                        <i class="fa-solid fa-rotate-right text-lg"></i>
+                    </button>
+                    <!-- 說明/程式碼 -->
+                    <button onclick="ui.openInfoModal()" class="text-gray-500 hover:text-blue-600 transition p-2">
+                        <i class="fa-solid fa-circle-info text-lg"></i>
+                    </button>
+                    <!-- 設定 -->
+                    <button onclick="ui.openSettingsModal()" class="text-gray-500 hover:text-blue-600 transition p-2">
+                        <i class="fa-solid fa-gear text-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要內容區 -->
+    <main class="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div class="max-w-7xl mx-auto">
+            
+            <!-- 作品網格 -->
+            <div id="worksGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- JS 動態插入作品卡片 -->
+            </div>
+
+            <!-- 載入中狀態 -->
+            <div id="loadingState" class="hidden flex flex-col justify-center items-center h-64">
+                <div class="loader mb-4"></div>
+                <p class="text-gray-500">正在讀取資料庫...</p>
+            </div>
+            
+            <!-- 無資料狀態 -->
+            <div id="emptyState" class="hidden flex flex-col justify-center items-center h-64 text-gray-400">
+                <i class="fa-regular fa-folder-open text-5xl mb-4"></i>
+                <p>目前沒有任何作品</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- ================= MODALS (模態視窗) ================= -->
+
+    <!-- 1. 設定視窗 -->
+    <div id="settingsModal" class="modal opacity-0 pointer-events-none fixed w-full h-full top-0 left-0 flex items-center justify-center z-50">
+        <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50"></div>
+        <div class="modal-container bg-white w-11/12 md:max-w-md mx-auto rounded shadow-lg z-50 overflow-y-auto">
+            <div class="modal-content py-4 text-left px-6">
+                <div class="flex justify-between items-center pb-3 border-b">
+                    <p class="text-2xl font-bold">⚙️ 連線設定</p>
+                    <div class="modal-close cursor-pointer z-50" onclick="ui.closeModal('settingsModal')">
+                        <i class="fa-solid fa-xmark text-gray-500 hover:text-black"></i>
+                    </div>
+                </div>
+                <div class="my-5">
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="gasUrlInput">
+                        Google Apps Script Web App URL
+                    </label>
+                    <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:shadow-outline" 
+                           id="gasUrlInput" type="password" placeholder="https://script.google.com/macros/s/AKfycbxjnxfMKzq0oo_qjoVlp394ie30Jx4MPb0oYO-9qjfgN__vpaOFLmIN3uElwBfsokF4/exec">
+                    <p class="text-xs text-gray-500 mb-4">請輸入部署後的網址 (權限需設為 Anyone)</p>
+
+                    <!-- 分享區塊 -->
+                    <div class="bg-blue-50 p-4 rounded-lg mb-4 border border-blue-100">
+                        <h3 class="font-bold text-blue-800 text-sm mb-2"><i class="fa-solid fa-share-nodes"></i> 產生分享連結</h3>
+                        <p class="text-xs text-gray-600 mb-2">產生含有設定的連結與 QR Code，讓學生掃描即可直接使用。</p>
+                        <button onclick="app.generateShareLink()" class="w-full bg-blue-500 hover:bg-blue-600 text-white text-sm font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                            產生 QR Code 與連結
+                        </button>
+                        
+                        <div id="shareResult" class="hidden mt-4 text-center">
+                            <img id="qrCodeImg" class="mx-auto border p-1 bg-white mb-2" src="" alt="QR Code" width="150">
+                            <p class="text-xs text-gray-500 break-all mb-2" id="shareUrlDisplay"></p>
+                            <button onclick="app.copyShareLink()" class="text-blue-600 hover:text-blue-800 text-xs font-bold underline">
+                                複製連結
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end pt-2 space-x-2">
+                    <button onclick="app.clearSettings()" class="px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 text-sm font-medium">清除設定</button>
+                    <button onclick="app.saveSettings()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">儲存設定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 上傳作品視窗 -->
+    <div id="uploadModal" class="modal opacity-0 pointer-events-none fixed w-full h-full top-0 left-0 flex items-center justify-center z-50">
+        <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50"></div>
+        <div class="modal-container bg-white w-11/12 md:max-w-lg mx-auto rounded shadow-lg z-50 overflow-y-auto max-h-[90vh]">
+            <div class="modal-content py-4 text-left px-6">
+                <div class="flex justify-between items-center pb-3 border-b">
+                    <p class="text-2xl font-bold">📤 上傳作品</p>
+                    <div class="modal-close cursor-pointer" onclick="ui.closeModal('uploadModal')">
+                        <i class="fa-solid fa-xmark"></i>
+                    </div>
+                </div>
+                <div class="my-5">
+                    <!-- 新增：姓名或座號輸入欄位 (學生模式顯示) -->
+                    <div id="authorInputGroup" class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">姓名或座號 <span class="text-red-500">*</span></label>
+                        <input id="workAuthor" type="text" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="例如：王小明 或 05">
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">標題</label>
+                        <input id="workTitle" type="text" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="請輸入作品標題">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">作品類型</label>
+                        <div class="flex space-x-4">
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="workType" value="image" class="form-radio text-blue-600" checked onchange="ui.toggleUploadType()">
+                                <span class="ml-2">圖片</span>
+                            </label>
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="workType" value="text" class="form-radio text-blue-600" onchange="ui.toggleUploadType()">
+                                <span class="ml-2">文字/公告</span>
+                            </label>
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="workType" value="url" class="form-radio text-blue-600" onchange="ui.toggleUploadType()">
+                                <span class="ml-2">外部網址</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 圖片上傳區 -->
+                    <div id="inputGroupImage" class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">選擇圖片</label>
+                        <input id="workImageFile" type="file" accept="image/*" class="block w-full text-sm text-gray-500
+                          file:mr-4 file:py-2 file:px-4
+                          file:rounded-full file:border-0
+                          file:text-sm file:font-semibold
+                          file:bg-blue-50 file:text-blue-700
+                          hover:file:bg-blue-100">
+                        <p class="text-xs text-gray-500 mt-1">系統將自動壓縮至寬度 800px 以內</p>
+                    </div>
+
+                    <!-- 文字輸入區 -->
+                    <div id="inputGroupText" class="mb-4 hidden">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">內容描述</label>
+                        <textarea id="workTextContent" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-32"></textarea>
+                    </div>
+
+                    <!-- 網址輸入區 -->
+                    <div id="inputGroupUrl" class="mb-4 hidden">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">連結網址</label>
+                        <input id="workUrlContent" type="url" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="https://...">
+                    </div>
+                </div>
+                <div class="flex justify-end pt-2">
+                    <button id="btnSubmitWork" onclick="app.submitWork()" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
+                        發布作品
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 全域提示 Modal (取代 alert) -->
+    <div id="alertModal" class="modal opacity-0 pointer-events-none fixed w-full h-full top-0 left-0 flex items-center justify-center z-[60]">
+        <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50"></div>
+        <div class="modal-container bg-white w-11/12 md:max-w-sm mx-auto rounded-lg shadow-xl z-[60] overflow-hidden">
+            <div id="alertHeader" class="py-3 px-4 bg-blue-600 text-white font-bold">
+                提示
+            </div>
+            <div class="p-6">
+                <p id="alertMessage" class="text-gray-700 mb-4 text-lg">訊息內容</p>
+                <div class="flex justify-end">
+                    <button onclick="ui.closeModal('alertModal')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded focus:outline-none">
+                        確定
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. 說明與程式碼 Modal -->
+    <div id="infoModal" class="modal opacity-0 pointer-events-none fixed w-full h-full top-0 left-0 flex items-center justify-center z-50">
+        <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50"></div>
+        <div class="modal-container bg-white w-11/12 md:max-w-2xl mx-auto rounded shadow-lg z-50 overflow-y-auto max-h-[90vh]">
+            <div class="modal-content py-4 text-left px-6">
+                <div class="flex justify-between items-center pb-3 border-b">
+                    <p class="text-2xl font-bold">ℹ️ 關於與部署</p>
+                    <div class="modal-close cursor-pointer" onclick="ui.closeModal('infoModal')">
+                        <i class="fa-solid fa-xmark"></i>
+                    </div>
+                </div>
+                <div class="my-5 text-sm text-gray-700 space-y-3">
+                    <p>此系統需要配合 Google Apps Script (GAS) 後端才能運作。</p>
+                    <ol class="list-decimal list-inside space-y-1 bg-gray-50 p-3 rounded">
+                        <li>在 Google Drive 建立新的 Apps Script 專案。</li>
+                        <li>將下方程式碼完全覆蓋 `Code.gs`。</li>
+                        <li>點擊「部署」 -> 「新增部署作業」 -> 選擇「網頁應用程式」。</li>
+                        <li><strong>執行身分：我 (Me)</strong>。</li>
+                        <li><strong>誰可以存取：任何人 (Anyone)</strong> (關鍵)。</li>
+                        <li>複製產生的網址，填入本網頁的設定 (⚙️) 中。</li>
+                    </ol>
+                    
+                    <div class="relative mt-4">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold">Code.gs 原始碼：</span>
+                            <button onclick="app.copyGasCode()" class="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-700 transition">
+                                <i class="fa-regular fa-copy"></i> 複製程式碼
+                            </button>
+                        </div>
+                        <textarea id="gasCodeDisplay" class="w-full h-48 p-2 border rounded font-mono text-xs bg-gray-800 text-green-400" readonly></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. 教師模式密碼驗證 Modal (新增) -->
+    <div id="passwordModal" class="modal opacity-0 pointer-events-none fixed w-full h-full top-0 left-0 flex items-center justify-center z-[55]">
+        <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50"></div>
+        <div class="modal-container bg-white w-11/12 md:max-w-sm mx-auto rounded-lg shadow-xl z-[55] overflow-hidden">
+            <div class="py-3 px-4 bg-gray-700 text-white font-bold flex justify-between items-center">
+                <span>🔒 教師模式驗證</span>
+                <i class="fa-solid fa-xmark cursor-pointer" onclick="ui.closeModal('passwordModal')"></i>
+            </div>
+            <div class="p-6">
+                <p class="text-gray-700 mb-2">請輸入管理密碼以切換為教師身分：</p>
+                <input id="passwordInput" type="password" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 mb-4 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" placeholder="密碼">
+                <div class="flex justify-end space-x-2">
+                    <button onclick="ui.closeModal('passwordModal')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded focus:outline-none">
+                        取消
+                    </button>
+                    <button onclick="ui.checkPassword()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none">
+                        確認
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === 1. 設定與常數 ===
+        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxjnxfMKzq0oo_qjoVlp394ie30Jx4MPb0oYO-9qjfgN__vpaOFLmIN3uElwBfsokF4/exec"; 
+        // 修正後的 Code.gs 模板，確保使用者複製到正確的程式碼
+        const GAS_CODE_TEMPLATE = `function doGet(e) { return handleRequest(e); }
+function doPost(e) { return handleRequest(e); }
+function handleRequest(e) {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+  try {
+    initDatabase();
+    let params = {};
+    if (e.parameter && Object.keys(e.parameter).length > 0) params = e.parameter;
+    else if (e.postData) params = JSON.parse(e.postData.contents);
+    
+    const action = params.action;
+    let result = {};
+    if(action === 'getWorks') result = getWorks(params.userId);
+    else if(action === 'addWork') result = addWork(params);
+    else if(action === 'likeWork') result = likeWork(params.workId, params.userId);
+    return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) { return ContentService.createTextOutput(JSON.stringify({status:'error', message:err.toString()})).setMimeType(ContentService.MimeType.JSON); }
+  finally { lock.releaseLock(); }
+}
+function initDatabase() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if(!ss.getSheetByName("作品列表")) ss.insertSheet("作品列表").appendRow(["ID", "上傳時間", "類型", "標題", "內容", "作者", "按讚數"]);
+  if(!ss.getSheetByName("按讚紀錄")) ss.insertSheet("按讚紀錄").appendRow(["紀錄ID", "作品ID", "使用者指紋", "按讚時間"]);
+}
+function getWorks(uid) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const wSheet = ss.getSheetByName("作品列表");
+  const lSheet = ss.getSheetByName("按讚紀錄");
+  const wData = wSheet.getDataRange().getValues();
+  const lData = lSheet.getDataRange().getValues();
+  wData.shift(); lData.shift();
+  const liked = new Set();
+  if(uid) lData.forEach(r => { if(String(r[2]) === String(uid)) liked.add(String(r[1])); });
+  return { status:'success', data: wData.reverse().map(r => ({
+    id: String(r[0]), timestamp: r[1], type: r[2], title: r[3], content: r[4], author: r[5], likes: r[6], hasLiked: liked.has(String(r[0]))
+  }))};
+}
+function addWork(d) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("作品列表");
+  // 修正：使用傳入的 author 或預設為 "訪客"
+  sheet.appendRow([Utilities.getUuid(), new Date().toLocaleString("zh-TW",{timeZone:"Asia/Taipei"}), d.type, d.title, d.content, d.author || "訪客", 0]);
+  return {status:'success'};
+}
+function likeWork(wid, uid) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lSheet = ss.getSheetByName("按讚紀錄");
+  const check = lSheet.getDataRange().getValues().some(r => String(r[1])===String(wid) && String(r[2])===String(uid));
+  if(check) return {status:'error', message:'已按讚'};
+  const wSheet = ss.getSheetByName("作品列表");
+  const wData = wSheet.getDataRange().getValues();
+  for(let i=1; i<wData.length; i++) {
+    if(String(wData[i][0])===String(wid)) {
+      wSheet.getRange(i+1, 7).setValue((parseInt(wData[i][6])||0)+1);
+      lSheet.appendRow([Utilities.getUuid(), wid, uid, new Date().toLocaleString()]);
+      return {status:'success'};
+    }
+  }
+  return {status:'error'};
+}`;
+
+        // === 2. UI 控制器 ===
+        const ui = {
+            // 切換按鈕的點擊事件入口
+            toggleRole: () => {
+                if (state.isTeacher) {
+                    // 如果目前是教師，切回學生 (不需要密碼)
+                    ui.setTeacherMode(false);
+                    ui.showAlert('已切換回學生模式', 'info');
+                } else {
+                    // 如果目前是學生，想變教師 (需要密碼)
+                    ui.openPasswordModal();
+                }
+            },
+
+            // 開啟密碼視窗
+            openPasswordModal: () => {
+                document.getElementById('passwordInput').value = '';
+                ui.openModal('passwordModal');
+                // 延遲聚焦，提升體驗
+                setTimeout(() => document.getElementById('passwordInput').focus(), 100);
+            },
+
+            // 驗證密碼邏輯
+            checkPassword: () => {
+                const input = document.getElementById('passwordInput').value;
+                if (input === '1234') { // 密碼設定處
+                    ui.closeModal('passwordModal');
+                    ui.setTeacherMode(true);
+                    ui.showAlert('登入成功！已切換為教師模式', 'success');
+                } else {
+                    ui.showAlert('密碼錯誤，請重新輸入', 'error');
+                    document.getElementById('passwordInput').value = '';
+                    document.getElementById('passwordInput').focus();
+                }
+            },
+
+            // 執行實際的 UI 切換與狀態更新
+            setTeacherMode: (isTeacher) => {
+                state.isTeacher = isTeacher;
+                const btn = document.getElementById('roleToggleBtn');
+                const text = document.getElementById('roleText');
+                
+                if (state.isTeacher) {
+                    btn.classList.remove('bg-gray-100', 'text-gray-700');
+                    btn.classList.add('bg-blue-600', 'text-white');
+                    text.innerText = "教師模式";
+                    // 這裡可以加入其他教師模式專屬的 UI 變化
+                } else {
+                    btn.classList.add('bg-gray-100', 'text-gray-700');
+                    btn.classList.remove('bg-blue-600', 'text-white');
+                    text.innerText = "學生模式";
+                }
+            },
+            
+            toggleUploadType: () => {
+                const type = document.querySelector('input[name="workType"]:checked').value;
+                document.getElementById('inputGroupImage').classList.toggle('hidden', type !== 'image');
+                document.getElementById('inputGroupText').classList.toggle('hidden', type !== 'text');
+                document.getElementById('inputGroupUrl').classList.toggle('hidden', type !== 'url');
+            },
+
+            openModal: (modalId) => {
+                const modal = document.getElementById(modalId);
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+                modal.classList.add('modal-active');
+            },
+
+            closeModal: (modalId) => {
+                const modal = document.getElementById(modalId);
+                modal.classList.add('opacity-0', 'pointer-events-none');
+                modal.classList.remove('modal-active');
+            },
+
+            openSettingsModal: () => {
+                document.getElementById('gasUrlInput').value = state.gasUrl;
+                ui.openModal('settingsModal');
+            },
+            
+            openInfoModal: () => {
+                document.getElementById('gasCodeDisplay').value = GAS_CODE_TEMPLATE;
+                ui.openModal('infoModal');
+            },
+            
+            // 修改：開啟上傳視窗時，檢查身分並處理作者欄位
+            openUploadModal: () => {
+                const authorGroup = document.getElementById('authorInputGroup');
+                const authorInput = document.getElementById('workAuthor');
+
+                if (state.isTeacher) {
+                    // 教師模式：隱藏欄位 (程式碼會自動帶入 "教師")
+                    authorGroup.classList.add('hidden');
+                } else {
+                    // 學生模式：顯示欄位，並嘗試讀取記憶的名稱
+                    authorGroup.classList.remove('hidden');
+                    const savedName = localStorage.getItem('student_name_cache') || '';
+                    authorInput.value = savedName;
+                }
+                ui.openModal('uploadModal');
+            },
+
+            showAlert: (msg, type = 'info') => {
+                const header = document.getElementById('alertHeader');
+                header.className = `py-3 px-4 text-white font-bold ${type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`;
+                header.innerText = type === 'error' ? '錯誤' : '提示';
+                document.getElementById('alertMessage').innerText = msg;
+                ui.openModal('alertModal');
+            },
+
+            renderWorks: (works) => {
+                const grid = document.getElementById('worksGrid');
+                const empty = document.getElementById('emptyState');
+                grid.innerHTML = '';
+                
+                if (!works || works.length === 0) {
+                    grid.classList.add('hidden');
+                    empty.classList.remove('hidden');
+                    return;
+                }
+                
+                grid.classList.remove('hidden');
+                empty.classList.add('hidden');
+
+                works.forEach(work => {
+                    let contentHtml = '';
+                    if (work.type === 'image') {
+                        contentHtml = `<img src="${work.content}" class="w-full h-48 object-cover" alt="${work.title}" onerror="this.src='https://via.placeholder.com/800x600?text=Image+Error'">`;
+                    } else if (work.type === 'url') {
+                        contentHtml = `<div class="w-full h-48 flex items-center justify-center bg-gray-100 flex-col p-4 text-center">
+                            <i class="fa-solid fa-link text-4xl text-blue-400 mb-2"></i>
+                            <a href="${work.content}" target="_blank" class="text-blue-600 hover:underline text-sm break-all line-clamp-2">${work.content}</a>
+                        </div>`;
+                    } else {
+                        contentHtml = `<div class="w-full h-48 flex items-center justify-center bg-gray-100 p-6 overflow-hidden">
+                            <p class="text-gray-700 text-sm line-clamp-6">${work.content}</p>
+                        </div>`;
+                    }
+
+                    const likeBtnClass = work.hasLiked 
+                        ? 'text-red-500 cursor-not-allowed' 
+                        : 'text-gray-400 hover:text-red-500 cursor-pointer transition transform hover:scale-110';
+                    
+                    const likeIconClass = work.hasLiked ? 'fa-solid' : 'fa-regular';
+
+                    const card = document.createElement('div');
+                    card.className = 'bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition duration-300';
+                    
+                    // 根據作者身分顯示標籤
+                    let authorBadge = '';
+                    if (work.author === '教師') {
+                        authorBadge = `<span class="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full ml-2 border border-blue-200">教師</span>`;
+                    } else {
+                        // 顯示學生姓名
+                        authorBadge = `<span class="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full ml-2">${work.author}</span>`;
+                    }
+
+                    card.innerHTML = `
+                        ${contentHtml}
+                        <div class="p-4">
+                            <div class="flex justify-between items-start mb-1">
+                                <h3 class="font-bold text-lg truncate flex-1" title="${work.title}">${work.title}</h3>
+                            </div>
+                            <div class="flex items-center text-xs text-gray-500 mb-3">
+                                <span>${work.timestamp.split(' ')[0]}</span>
+                                ${authorBadge}
+                            </div>
+                            <div class="flex justify-between items-center border-t pt-3">
+                                <span class="text-xs text-gray-400">ID: ${work.id.substr(0,4)}</span>
+                                <div class="flex items-center space-x-1">
+                                    <button ${work.hasLiked ? 'disabled' : `onclick="app.likeWork('${work.id}')"`} class="${likeBtnClass} focus:outline-none">
+                                        <i class="${likeIconClass} fa-heart text-xl"></i>
+                                    </button>
+                                    <span class="text-sm font-medium text-gray-600" id="likes-${work.id}">${work.likes}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+            }
+        };
+
+        // === 3. 核心邏輯與 API ===
+        const state = {
+            gasUrl: '',
+            userId: '', // 使用者指紋
+            isTeacher: false
+        };
+
+        const app = {
+            init: () => {
+                // 1. 產生使用者指紋
+                let uid = localStorage.getItem('app_user_id');
+                if (!uid) {
+                    uid = 'user_' + Math.random().toString(36).substr(2, 9);
+                    localStorage.setItem('app_user_id', uid);
+                }
+                state.userId = uid;
+
+                // 2. 決定 GAS URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const configParam = urlParams.get('config');
+
+                if (configParam) {
+                    try {
+                        const decodedUrl = atob(configParam);
+                        state.gasUrl = decodedUrl;
+                        localStorage.setItem('gas_app_url', decodedUrl);
+                        // 清除網址參數讓看起來更乾淨 (可選)
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    } catch (e) {
+                        console.error("Config decode failed", e);
+                    }
+                } else {
+                    const storedUrl = localStorage.getItem('gas_app_url');
+                    state.gasUrl = storedUrl || DEFAULT_GAS_URL;
+                }
+
+                // 3. 綁定事件
+                document.getElementById('roleToggleBtn').onclick = ui.toggleRole;
+                
+                // 綁定密碼輸入框 Enter 鍵觸發
+                document.getElementById('passwordInput').addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        ui.checkPassword();
+                    }
+                });
+
+                // 4. 初次載入
+                if (state.gasUrl) {
+                    app.loadWorks();
+                } else {
+                    ui.showAlert('尚未設定 API 網址。請點擊右上角「⚙️」進行設定。', 'info');
+                    ui.openSettingsModal();
+                }
+            },
+
+            saveSettings: () => {
+                const url = document.getElementById('gasUrlInput').value.trim();
+                if (!url.startsWith('https://')) {
+                    ui.showAlert('網址格式錯誤，必須以 https:// 開頭', 'error');
+                    return;
+                }
+                localStorage.setItem('gas_app_url', url);
+                state.gasUrl = url;
+                ui.closeModal('settingsModal');
+                ui.showAlert('設定已儲存，正在重新整理...', 'success');
+                setTimeout(() => app.loadWorks(), 1000);
+            },
+
+            clearSettings: () => {
+                localStorage.removeItem('gas_app_url');
+                document.getElementById('gasUrlInput').value = '';
+                state.gasUrl = '';
+                ui.showAlert('設定已清除', 'info');
+                setTimeout(() => location.reload(), 1000);
+            },
+
+            generateShareLink: () => {
+                if (!state.gasUrl) {
+                    ui.showAlert('請先輸入並儲存 GAS URL', 'error');
+                    return;
+                }
+                const base64Url = btoa(state.gasUrl);
+                // 組合目前頁面網址 + 參數
+                const shareUrl = `${window.location.origin}${window.location.pathname}?config=${base64Url}`;
+                
+                // 顯示連結
+                const display = document.getElementById('shareUrlDisplay');
+                display.innerText = shareUrl;
+                
+                // 產生 QR Code (使用 quickchart.io，支援長網址)
+                const qrApi = `https://quickchart.io/qr?text=${encodeURIComponent(shareUrl)}&size=200`;
+                document.getElementById('qrCodeImg').src = qrApi;
+                
+                document.getElementById('shareResult').classList.remove('hidden');
+            },
+
+            copyShareLink: () => {
+                const text = document.getElementById('shareUrlDisplay').innerText;
+                navigator.clipboard.writeText(text).then(() => {
+                    ui.showAlert('連結已複製到剪貼簿！');
+                });
+            },
+
+            copyGasCode: () => {
+                // 複製變數中定義的正確內容
+                navigator.clipboard.writeText(GAS_CODE_TEMPLATE).then(() => {
+                    ui.showAlert('後端程式碼已複製！');
+                });
+            },
+
+            // --- API 呼叫 ---
+
+            callApi: async (action, payload = {}) => {
+                if (!state.gasUrl) return { status: 'error', message: '未設定 API URL' };
+                
+                const data = { action, ...payload };
+                
+                try {
+                    const response = await fetch(state.gasUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify(data)
+                    });
+                    
+                    const result = await response.json();
+                    return result;
+                } catch (error) {
+                    console.error(error);
+                    return { status: 'error', message: '連線失敗: ' + error.message };
+                }
+            },
+
+            loadWorks: async () => {
+                document.getElementById('loadingState').classList.remove('hidden');
+                document.getElementById('worksGrid').classList.add('hidden');
+                document.getElementById('emptyState').classList.add('hidden');
+
+                const res = await app.callApi('getWorks', { userId: state.userId });
+                
+                document.getElementById('loadingState').classList.add('hidden');
+                
+                if (res.status === 'success') {
+                    // 排序邏輯：將作品依照按讚數 (likes) 由多到少排列
+                    const sortedWorks = res.data.sort((a, b) => {
+                        return (parseInt(b.likes) || 0) - (parseInt(a.likes) || 0);
+                    });
+                    ui.renderWorks(sortedWorks);
+                } else {
+                    ui.showAlert('讀取失敗: ' + res.message, 'error');
+                }
+            },
+
+            submitWork: async () => {
+                const title = document.getElementById('workTitle').value;
+                const type = document.querySelector('input[name="workType"]:checked').value;
+                let content = '';
+                let authorName = '';
+
+                // 處理作者名稱
+                if (state.isTeacher) {
+                    authorName = "教師";
+                } else {
+                    authorName = document.getElementById('workAuthor').value.trim();
+                    if (!authorName) return ui.showAlert('請輸入姓名或座號', 'error');
+                    // 記憶姓名
+                    localStorage.setItem('student_name_cache', authorName);
+                }
+
+                if (!title) return ui.showAlert('請輸入標題', 'error');
+
+                const btn = document.getElementById('btnSubmitWork');
+                btn.disabled = true;
+                btn.innerText = '處理中...';
+
+                try {
+                    if (type === 'text') {
+                        content = document.getElementById('workTextContent').value;
+                        if (!content) throw new Error("請輸入內容");
+                    } else if (type === 'url') {
+                        content = document.getElementById('workUrlContent').value;
+                        if (!content) throw new Error("請輸入網址");
+                    } else if (type === 'image') {
+                        const fileInput = document.getElementById('workImageFile');
+                        if (fileInput.files.length === 0) throw new Error("請選擇圖片");
+                        content = await app.processImage(fileInput.files[0]);
+                    }
+
+                    const res = await app.callApi('addWork', {
+                        title, 
+                        type, 
+                        content,
+                        // 使用輸入的作者名稱
+                        author: authorName
+                    });
+
+                    if (res.status === 'success') {
+                        ui.closeModal('uploadModal');
+                        ui.showAlert('作品發布成功！', 'success');
+                        // 清空表單
+                        document.getElementById('workTitle').value = '';
+                        document.getElementById('workTextContent').value = '';
+                        document.getElementById('workUrlContent').value = '';
+                        document.getElementById('workImageFile').value = '';
+                        // 保留姓名欄位不清除，方便下次上傳
+                        
+                        app.loadWorks();
+                    } else {
+                        throw new Error(res.message);
+                    }
+
+                } catch (e) {
+                    ui.showAlert(e.message, 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = '發布作品';
+                }
+            },
+
+            likeWork: async (workId) => {
+                const likeSpan = document.getElementById(`likes-${workId}`);
+                const currentLikes = parseInt(likeSpan.innerText);
+                const btn = likeSpan.parentElement.querySelector('button');
+                
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-heart text-red-500 text-xl animate-pulse"></i>';
+                likeSpan.innerText = currentLikes + 1;
+
+                const res = await app.callApi('likeWork', {
+                    workId: workId,
+                    userId: state.userId
+                });
+
+                if (res.status === 'success') {
+                    btn.classList.add('text-red-500', 'cursor-not-allowed');
+                    btn.classList.remove('text-gray-400', 'hover:text-red-500');
+                } else {
+                    ui.showAlert(res.message, 'error');
+                    likeSpan.innerText = currentLikes;
+                    btn.innerHTML = '<i class="fa-regular fa-heart text-xl"></i>';
+                    btn.disabled = false;
+                }
+            },
+
+            processImage: (file) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(file);
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.src = event.target.result;
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const maxWidth = 800;
+                            let width = img.width;
+                            let height = img.height;
+
+                            if (width > maxWidth) {
+                                height = Math.round(height * (maxWidth / width));
+                                width = maxWidth;
+                            }
+
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                            if (dataUrl.length > 50000) {
+                                console.warn("圖片 Base64 可能過大，若儲存失敗請降低畫質");
+                            }
+                            resolve(dataUrl);
+                        };
+                        img.onerror = (e) => reject(new Error("圖片載入失敗"));
+                    };
+                    reader.onerror = (e) => reject(new Error("檔案讀取失敗"));
+                });
+            }
+        };
+
+        window.onload = app.init;
+
+    </script>
+</body>
+</html>
