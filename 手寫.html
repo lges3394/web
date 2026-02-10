@@ -22,6 +22,7 @@
 <body class="h-screen flex flex-col overflow-hidden text-gray-800">
 
   <script>
+    // 這裡可以預填您的 GAS 網址，方便部署
     const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxI80290FjZDaxhjlvFmIZ5JyNuFsSQx0eLLEA6bYrHWsn5u1HNuWAvUnFKpERiNq5lRg/exec"; 
   </script>
 
@@ -121,10 +122,12 @@
     </div>
   </div>
 
+  <!-- 輸入座號 Modal (修改為數字輸入) -->
   <div id="modal-name" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4 backdrop-blur-sm">
     <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center border-4 border-blue-200">
-      <h3 class="text-xl font-bold mb-4 text-blue-600">請寫下你的名字</h3>
-      <input type="text" id="input-student-name" class="w-full text-center text-2xl border-2 border-gray-300 rounded-xl p-3 mb-6" placeholder="王小明">
+      <h3 class="text-xl font-bold mb-4 text-blue-600">請輸入你的座號</h3>
+      <!-- type="number" 限制只能輸入數字 -->
+      <input type="number" id="input-student-name" class="w-full text-center text-3xl border-2 border-gray-300 rounded-xl p-3 mb-6 font-mono font-bold" placeholder="例如: 5">
       <div class="flex gap-2">
         <button onclick="ui.closeModal('modal-name')" class="flex-1 bg-gray-200 text-gray-600 py-3 rounded-xl font-bold">取消</button>
         <button onclick="app.confirmSubmit()" class="flex-1 bg-blue-500 text-white py-3 rounded-xl font-bold shadow-md">送出作業</button>
@@ -135,7 +138,7 @@
   <div id="modal-replay" class="fixed inset-0 bg-black bg-opacity-80 hidden flex flex-col items-center justify-center z-50 p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden max-h-[90vh]">
       <div class="p-3 bg-gray-100 border-b flex justify-between items-center">
-        <h3 class="font-bold text-gray-700"><i class="fa-solid fa-film"></i> 作業重播: <span id="replay-name"></span></h3>
+        <h3 class="font-bold text-gray-700"><i class="fa-solid fa-film"></i> 座號: <span id="replay-name"></span> 的作業</h3>
         <button onclick="ui.closeModal('modal-replay')" class="text-gray-500 hover:text-red-500 text-xl"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <!-- 畫布區 -->
@@ -204,11 +207,12 @@
       submitWork: () => { if(STATE.strokes.length === 0){ ui.alert('空的', '請先畫畫！', 'warning'); return; } document.getElementById('input-student-name').value = ''; ui.openModal('modal-name'); },
       confirmSubmit: async () => {
         const name = document.getElementById('input-student-name').value.trim();
-        if(!name) return;
+        if(!name) { ui.showToast('請輸入座號', 'error'); return; }
         ui.closeModal('modal-name');
         ui.showLoading(true, '傳送中...');
         try {
           const img = await painter.generateThumbnail(800);
+          // 這裡雖然變數是 name，但內容是座號，後端不用改
           const res = await fetch(STATE.gasUrl + '?action=submit', {
             method: 'POST', body: JSON.stringify({ name: name, image: img, strokes: STATE.strokes })
           });
@@ -294,7 +298,7 @@
         teacher.data.forEach((item, idx) => {
           const d = document.createElement('div');
           d.className = 'bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition cursor-pointer';
-          d.innerHTML = `<div class="aspect-w-4 aspect-h-3 bg-gray-100 border-b relative"><img src="${item.image}" class="object-contain w-full h-40"><div class="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/10 transition"><i class="fa-solid fa-play text-white opacity-0 hover:opacity-80 text-4xl shadow-lg"></i></div></div><div class="p-3"><h3 class="font-bold text-gray-800">${item.name}</h3><p class="text-xs text-gray-400">${item.time.split(' ')[1]}</p></div>`;
+          d.innerHTML = `<div class="aspect-w-4 aspect-h-3 bg-gray-100 border-b relative"><img src="${item.image}" class="object-contain w-full h-40"><div class="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/10 transition"><i class="fa-solid fa-play text-white opacity-0 hover:opacity-80 text-4xl shadow-lg"></i></div></div><div class="p-3"><h3 class="font-bold text-gray-800">座號：${item.name}</h3><p class="text-xs text-gray-400">${item.time.split(' ')[1]}</p></div>`;
           d.onclick = () => replayer.open(idx);
           l.appendChild(d);
         });
@@ -302,7 +306,7 @@
     };
 
     // --- 關鍵修復：重播器 (Replayer) ---
-    // 加入自動縮放 (Auto-Fit) 與 分段繪製邏輯
+    // 修復單點縮放錯誤導致的白屏問題
     const replayer = {
       strokes: [], canvas: null, ctx: null, animationId: null, currentIndex: 0, currentPoint: 0,
       
@@ -315,13 +319,27 @@
 
         try { replayer.strokes = JSON.parse(item.strokes); } catch(e) { replayer.strokes = []; }
 
+        // 增加緩衝時間，確保 Modal 完全打開且 Canvas 尺寸正確
         setTimeout(() => {
             const container = canvas.parentElement;
-            canvas.width = container.clientWidth || 800;
-            canvas.height = container.clientHeight || 600;
+            // 強制獲取容器實際像素大小
+            const rect = container.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            
             replayer.ctx = canvas.getContext('2d');
             replayer.clear();
-        }, 50);
+            
+            // 自動縮放預覽，讓老師知道有東西
+            if (replayer.strokes.length > 0) {
+                 replayer.fitToScreen();
+                 replayer.drawFullStatic(); // 畫靜態圖
+                 // 畫完後重置狀態準備播放
+                 replayer.currentIndex = 0; replayer.currentPoint = 0;
+            } else {
+                 ui.showToast('此作業無筆畫資料', 'warning');
+            }
+        }, 100);
       },
 
       clear: () => {
@@ -333,27 +351,62 @@
         replayer.currentIndex = 0; replayer.currentPoint = 0;
       },
 
+      // 計算並套用縮放矩陣
+      fitToScreen: () => {
+          if (!replayer.strokes || replayer.strokes.length === 0) return;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          replayer.strokes.forEach(s => {
+             if(s.points) s.points.forEach(p => {
+               if(p.x < minX) minX = p.x; if(p.y < minY) minY = p.y;
+               if(p.x > maxX) maxX = p.x; if(p.y > maxY) maxY = p.y;
+             });
+          });
+
+          // 如果沒有有效座標，退出
+          if(minX === Infinity) return;
+
+          const padding = 40;
+          let dw = maxX - minX; 
+          let dh = maxY - minY;
+          
+          // 防止單點導致寬高為 0 的錯誤 (Critical Fix)
+          if (dw < 1) dw = 1;
+          if (dh < 1) dh = 1;
+
+          const cw = replayer.canvas.width; 
+          const ch = replayer.canvas.height;
+          const scale = Math.min((cw - padding*2)/dw, (ch - padding*2)/dh, 1.5); // 限制最大放大倍率
+          
+          const ox = (cw - dw*scale)/2 - minX*scale;
+          const oy = (ch - dh*scale)/2 - minY*scale;
+          
+          replayer.ctx.setTransform(scale, 0, 0, scale, ox, oy);
+      },
+
+      // 畫出完整靜態圖 (預覽用)
+      drawFullStatic: () => {
+         replayer.strokes.forEach(s => {
+            if (!s.points || s.points.length === 0) return;
+            replayer.ctx.beginPath();
+            replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round';
+            replayer.ctx.strokeStyle = s.color; replayer.ctx.fillStyle = s.color; replayer.ctx.lineWidth = s.size;
+            
+            if (s.points.length === 1) {
+                replayer.ctx.arc(s.points[0].x, s.points[0].y, s.size/2, 0, Math.PI*2); replayer.ctx.fill();
+            } else {
+                replayer.ctx.moveTo(s.points[0].x, s.points[0].y);
+                for(let i=1; i<s.points.length; i++) replayer.ctx.lineTo(s.points[i].x, s.points[i].y);
+                replayer.ctx.stroke();
+            }
+         });
+      },
+
       play: () => {
+        // 重置並重新計算縮放 (確保每次播放都正確)
         replayer.clear();
         if(!replayer.ctx || replayer.strokes.length === 0) return;
-
-        // 1. 自動計算縮放 (Auto-Fit Logic)
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        replayer.strokes.forEach(s => s.points.forEach(p => {
-           if(p.x < minX) minX = p.x; if(p.y < minY) minY = p.y;
-           if(p.x > maxX) maxX = p.x; if(p.y > maxY) maxY = p.y;
-        }));
         
-        // 如果有畫筆跡，進行縮放
-        if(minX !== Infinity) {
-           const padding = 20;
-           const dw = maxX - minX; const dh = maxY - minY;
-           const cw = replayer.canvas.width; const ch = replayer.canvas.height;
-           const scale = Math.min((cw - padding*2)/dw, (ch - padding*2)/dh, 1);
-           const ox = (cw - dw*scale)/2 - minX*scale;
-           const oy = (ch - dh*scale)/2 - minY*scale;
-           replayer.ctx.setTransform(scale, 0, 0, scale, ox, oy);
-        }
+        replayer.fitToScreen(); // Apply transform
 
         const speed = parseInt(document.getElementById('replay-speed').value);
         let ptsPerFrame = speed * 2;
@@ -365,6 +418,9 @@
             }
             const s = replayer.strokes[replayer.currentIndex];
             
+            // 處理空筆畫或無點筆畫
+            if (!s.points || s.points.length === 0) { replayer.currentIndex++; continue; }
+            
             // 處理單點 (Dots)
             if (s.points.length === 1 && replayer.currentPoint === 0) {
                  const p = s.points[0];
@@ -372,7 +428,6 @@
                  replayer.ctx.arc(p.x, p.y, s.size/2, 0, Math.PI*2); replayer.ctx.fill();
                  replayer.currentIndex++; continue;
             }
-            if (s.points.length === 0) { replayer.currentIndex++; continue; }
 
             // 處理線段
             if(replayer.currentPoint < s.points.length - 1){
