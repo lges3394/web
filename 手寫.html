@@ -18,17 +18,19 @@
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     #canvas-container { cursor: crosshair; background-image: radial-gradient(#E5E7EB 1px, transparent 1px); background-size: 20px 20px; }
     
-    /* 重播畫布強制填滿容器，但保持比例 */
+    /* 強制畫布填滿，但保持比例 */
     #replay-canvas {
       width: 100%;
       height: 100%;
       object-fit: contain;
+      background-color: #ffffff; /* 確保背景是白的 */
     }
   </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden text-gray-800">
 
   <script>
+    // 這裡可以預填您的 GAS 網址
     const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxI80290FjZDaxhjlvFmIZ5JyNuFsSQx0eLLEA6bYrHWsn5u1HNuWAvUnFKpERiNq5lRg/exec"; 
   </script>
 
@@ -139,19 +141,26 @@
     </div>
   </div>
 
+  <!-- 重播視窗 (大幅改良版) -->
   <div id="modal-replay" class="fixed inset-0 bg-black bg-opacity-80 hidden flex flex-col items-center justify-center z-50 p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden max-h-[90vh]">
       <div class="p-3 bg-gray-100 border-b flex justify-between items-center">
-        <!-- 增加筆畫數顯示，方便除錯 -->
-        <h3 class="font-bold text-gray-700"><i class="fa-solid fa-film"></i> 座號: <span id="replay-name"></span> <span id="replay-info" class="text-xs text-gray-400 ml-2"></span></h3>
+        <h3 class="font-bold text-gray-700"><i class="fa-solid fa-film"></i> 座號: <span id="replay-name"></span></h3>
         <button onclick="ui.closeModal('modal-replay')" class="text-gray-500 hover:text-red-500 text-xl"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <!-- 畫布區 -->
       <div id="replay-container" class="relative bg-white flex-1 overflow-hidden flex justify-center items-center bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px]" style="min-height: 300px;">
         <canvas id="replay-canvas" class="shadow-lg border"></canvas>
       </div>
+      <!-- 診斷資訊列 -->
+      <div class="bg-gray-800 text-gray-300 text-xs px-4 py-1 font-mono flex justify-between">
+        <span id="debug-info">準備就緒...</span>
+        <span id="debug-canvas-size">Canvas: -</span>
+      </div>
       <div class="p-4 bg-gray-50 border-t flex justify-center items-center gap-4">
-        <button id="btn-play" onclick="replayer.play()" class="bg-blue-500 text-white w-12 h-12 rounded-full shadow hover:bg-blue-600 flex items-center justify-center text-xl"><i class="fa-solid fa-play"></i></button>
+        <button id="btn-play" onclick="replayer.play()" class="bg-blue-500 text-white w-12 h-12 rounded-full shadow hover:bg-blue-600 flex items-center justify-center text-xl btn-bounce">
+            <i class="fa-solid fa-play"></i>
+        </button>
         <div class="flex items-center gap-2 bg-white px-3 py-1 rounded-lg border shadow-sm">
           <span class="text-xs text-gray-500 font-bold">速度</span>
           <select id="replay-speed" class="bg-transparent text-sm font-bold outline-none text-blue-600">
@@ -179,6 +188,17 @@
 
   <script>
     const STATE = { gasUrl: "", strokes: [], isDrawing: false };
+
+    // 診斷工具函式
+    const debug = {
+      log: (msg) => {
+        document.getElementById('debug-info').innerText = msg;
+        console.log('[DEBUG]', msg);
+      },
+      size: (w, h) => {
+        document.getElementById('debug-canvas-size').innerText = `Canvas: ${w}x${h}`;
+      }
+    };
 
     const app = {
       init: () => {
@@ -240,7 +260,11 @@
       },
       resize: () => {
         const container = document.getElementById('canvas-container');
-        if(container && painter.canvas){ painter.canvas.width = container.clientWidth; painter.canvas.height = container.clientHeight; painter.redraw(); }
+        if(container && painter.canvas){ 
+            painter.canvas.width = container.clientWidth; 
+            painter.canvas.height = container.clientHeight; 
+            painter.redraw(); 
+        }
       },
       getPos: (e) => {
         const rect = painter.canvas.getBoundingClientRect();
@@ -309,7 +333,7 @@
     };
 
     // --- 關鍵修復：重播器 (Replayer) ---
-    // 策略：使用固定虛擬解析度 1000x800，避免依賴 CSS 寬度
+    // 增加虛擬解析度 (Virtual Resolution) 與 診斷資訊 (Diagnostics)
     const replayer = {
       strokes: [], canvas: null, ctx: null, animationId: null, currentIndex: 0, currentPoint: 0, scale: 1,
       
@@ -318,38 +342,49 @@
         const canvas = document.getElementById('replay-canvas');
         document.getElementById('replay-name').innerText = item.name;
         
+        // 重置狀態
+        debug.log("載入資料中...");
         ui.openModal('modal-replay');
 
-        try { replayer.strokes = JSON.parse(item.strokes); } catch(e) { replayer.strokes = []; }
+        try { 
+            replayer.strokes = JSON.parse(item.strokes); 
+        } catch(e) { 
+            replayer.strokes = []; 
+            debug.log("資料解析失敗");
+        }
         
-        // 顯示筆畫數，確認資料是否有載入
-        document.getElementById('replay-info').innerText = `(筆畫: ${replayer.strokes ? replayer.strokes.length : 0})`;
+        const strokeCount = replayer.strokes ? replayer.strokes.length : 0;
+        debug.log(`資料載入完成: ${strokeCount} 筆畫`);
 
-        if (!replayer.strokes || replayer.strokes.length === 0) {
+        if (strokeCount === 0) {
             ui.showToast('注意：此作業沒有筆畫紀錄', 'warning');
             return;
         }
 
+        // 延遲執行，確保 Modal 渲染完畢
         setTimeout(() => {
-            // 強制設定內部解析度，不依賴螢幕大小
+            // 強制設定內部解析度 1000x800，解決裝置大小問題
             canvas.width = 1000;
             canvas.height = 800;
+            debug.size(canvas.width, canvas.height);
             
             replayer.ctx = canvas.getContext('2d');
             replayer.clear();
             
-            if (replayer.strokes.length > 0) {
+            if (strokeCount > 0) {
                  replayer.fitToScreen();
-                 replayer.drawFullStatic(); // 先畫出靜態圖
-                 replayer.currentIndex = 0; replayer.currentPoint = 0; // 重置播放進度
+                 // 立即畫出第一幀，確認資料可視
+                 replayer.drawFullStatic();
+                 // 重置播放指針
+                 replayer.currentIndex = 0; replayer.currentPoint = 0;
             }
-        }, 100);
+        }, 200);
       },
 
       clear: () => {
         if(replayer.animationId) cancelAnimationFrame(replayer.animationId);
         if(replayer.ctx) {
-           replayer.ctx.setTransform(1, 0, 0, 1, 0, 0); // 先重置變形
+           replayer.ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置變形矩陣
            replayer.ctx.clearRect(0, 0, replayer.canvas.width, replayer.canvas.height);
         }
         replayer.currentIndex = 0; replayer.currentPoint = 0;
@@ -366,9 +401,15 @@
              });
           });
 
-          if(minX === Infinity) return; // 沒東西可畫
+          // 如果找不到範圍 (全是空筆畫)，設為預設
+          if(minX === Infinity) {
+             debug.log("警告: 無效的座標範圍");
+             minX = 0; minY = 0; maxX = 1000; maxY = 800;
+          }
 
-          const padding = 50; // 留邊
+          debug.log(`座標範圍: (${Math.round(minX)},${Math.round(minY)}) -> (${Math.round(maxX)},${Math.round(maxY)})`);
+
+          const padding = 50; 
           let dw = maxX - minX; 
           let dh = maxY - minY;
           if (dw < 1) dw = 1; if (dh < 1) dh = 1;
@@ -376,11 +417,9 @@
           const cw = replayer.canvas.width; 
           const ch = replayer.canvas.height;
           
-          // 計算縮放比例
           const scale = Math.min((cw - padding*2)/dw, (ch - padding*2)/dh);
           replayer.scale = scale;
 
-          // 置中
           const ox = (cw - dw*scale)/2 - minX*scale;
           const oy = (ch - dh*scale)/2 - minY*scale;
           
@@ -394,8 +433,7 @@
             replayer.ctx.beginPath();
             replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round';
             replayer.ctx.strokeStyle = s.color; replayer.ctx.fillStyle = s.color; 
-            // 根據縮放比例調整線條粗細，避免太細
-            replayer.ctx.lineWidth = Math.max(s.size, 3 / replayer.scale);
+            replayer.ctx.lineWidth = Math.max(s.size, 3 / replayer.scale); // 防止線條太細
             
             if (s.points.length === 1) {
                 replayer.ctx.arc(s.points[0].x, s.points[0].y, (s.size/2), 0, Math.PI*2); replayer.ctx.fill();
@@ -409,8 +447,12 @@
 
       play: () => {
         replayer.clear();
-        if(!replayer.ctx || !replayer.strokes || replayer.strokes.length === 0) return;
+        if(!replayer.ctx || !replayer.strokes || replayer.strokes.length === 0) {
+            ui.showToast("無資料可播放", "error");
+            return;
+        }
         
+        debug.log("開始播放...");
         replayer.fitToScreen(); // 重新套用縮放
 
         const speed = parseInt(document.getElementById('replay-speed').value) || 1;
@@ -419,6 +461,7 @@
         const loop = () => {
           for(let k=0; k<ptsPerFrame; k++){
             if(replayer.currentIndex >= replayer.strokes.length) {
+               debug.log("播放結束");
                cancelAnimationFrame(replayer.animationId); return;
             }
             const s = replayer.strokes[replayer.currentIndex];
@@ -430,6 +473,7 @@
             replayer.ctx.fillStyle = s.color;
             replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round';
 
+            // 處理單點
             if (s.points.length === 1 && replayer.currentPoint === 0) {
                  const p = s.points[0];
                  replayer.ctx.beginPath(); 
@@ -437,6 +481,7 @@
                  replayer.currentIndex++; continue;
             }
 
+            // 處理線段
             if(replayer.currentPoint < s.points.length - 1){
               const p1 = s.points[replayer.currentPoint];
               const p2 = s.points[replayer.currentPoint+1];
