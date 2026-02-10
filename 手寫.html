@@ -141,14 +141,13 @@
     </div>
   </div>
 
-  <!-- 重播視窗 (大幅改良版) -->
+  <!-- 重播視窗 -->
   <div id="modal-replay" class="fixed inset-0 bg-black bg-opacity-80 hidden flex flex-col items-center justify-center z-50 p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden max-h-[90vh]">
       <div class="p-3 bg-gray-100 border-b flex justify-between items-center">
         <h3 class="font-bold text-gray-700"><i class="fa-solid fa-film"></i> 座號: <span id="replay-name"></span></h3>
         <button onclick="ui.closeModal('modal-replay')" class="text-gray-500 hover:text-red-500 text-xl"><i class="fa-solid fa-xmark"></i></button>
       </div>
-      <!-- 畫布區 -->
       <div id="replay-container" class="relative bg-white flex-1 overflow-hidden flex justify-center items-center bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px]" style="min-height: 300px;">
         <canvas id="replay-canvas" class="shadow-lg border"></canvas>
       </div>
@@ -232,6 +231,14 @@
       confirmSubmit: async () => {
         const name = document.getElementById('input-student-name').value.trim();
         if(!name) { ui.showToast('請輸入座號', 'error'); return; }
+        
+        // --- 核心優化：檢查資料大小 ---
+        const strokesStr = JSON.stringify(STATE.strokes);
+        if (strokesStr.length > 45000) {
+           ui.alert('作業太大了', '這份作業的筆畫太多，可能會傳送失敗。\n建議清除部分內容，或分次繪製。', 'warning');
+           return;
+        }
+
         ui.closeModal('modal-name');
         ui.showLoading(true, '傳送中...');
         try {
@@ -247,6 +254,7 @@
       }
     };
 
+    // --- 畫筆核心優化：座標整數化 + 距離過濾 ---
     const painter = {
       canvas: null, ctx: null, currentColor: '#000000', currentSize: 5,
       init: () => {
@@ -273,13 +281,37 @@
         return { x: clientX - rect.left, y: clientY - rect.top };
       },
       start: (e) => {
-        e.preventDefault(); STATE.isDrawing = true; const pos = painter.getPos(e);
+        e.preventDefault(); 
+        STATE.isDrawing = true; 
+        const pos = painter.getPos(e);
+        // 優化：只存整數
+        pos.x = Math.round(pos.x);
+        pos.y = Math.round(pos.y);
+        
         STATE.strokes.push({ color: painter.currentColor, size: painter.currentSize, points: [pos] });
-        painter.ctx.beginPath(); painter.ctx.moveTo(pos.x, pos.y); painter.ctx.lineCap = 'round'; painter.ctx.lineJoin = 'round'; painter.ctx.strokeStyle = painter.currentColor; painter.ctx.lineWidth = painter.currentSize;
+        
+        painter.ctx.beginPath(); painter.ctx.moveTo(pos.x, pos.y); 
+        painter.ctx.lineCap = 'round'; painter.ctx.lineJoin = 'round'; 
+        painter.ctx.strokeStyle = painter.currentColor; painter.ctx.lineWidth = painter.currentSize;
       },
       move: (e) => {
-        if(!STATE.isDrawing) return; e.preventDefault(); const pos = painter.getPos(e);
-        STATE.strokes[STATE.strokes.length-1].points.push(pos);
+        if(!STATE.isDrawing) return; 
+        e.preventDefault(); 
+        const pos = painter.getPos(e);
+        
+        // 優化1：只存整數
+        pos.x = Math.round(pos.x);
+        pos.y = Math.round(pos.y);
+
+        // 優化2：過濾過於密集的點 (距離 < 3px 不存)
+        const currentStroke = STATE.strokes[STATE.strokes.length-1];
+        if (currentStroke.points.length > 0) {
+            const lastPt = currentStroke.points[currentStroke.points.length-1];
+            const dist = Math.hypot(pos.x - lastPt.x, pos.y - lastPt.y);
+            if (dist < 3) return; // 距離太短，跳過不存
+        }
+        
+        currentStroke.points.push(pos);
         painter.ctx.lineTo(pos.x, pos.y); painter.ctx.stroke();
       },
       end: () => { STATE.isDrawing = false; painter.ctx.closePath(); },
@@ -332,8 +364,6 @@
       }
     };
 
-    // --- 關鍵修復：重播器 (Replayer) ---
-    // 增加虛擬解析度 (Virtual Resolution) 與 診斷資訊 (Diagnostics)
     const replayer = {
       strokes: [], canvas: null, ctx: null, animationId: null, currentIndex: 0, currentPoint: 0, scale: 1,
       
@@ -342,7 +372,6 @@
         const canvas = document.getElementById('replay-canvas');
         document.getElementById('replay-name').innerText = item.name;
         
-        // 重置狀態
         debug.log("載入資料中...");
         ui.openModal('modal-replay');
 
@@ -350,20 +379,18 @@
             replayer.strokes = JSON.parse(item.strokes); 
         } catch(e) { 
             replayer.strokes = []; 
-            debug.log("資料解析失敗");
+            debug.log("資料解析失敗: JSON 格式錯誤");
         }
         
         const strokeCount = replayer.strokes ? replayer.strokes.length : 0;
         debug.log(`資料載入完成: ${strokeCount} 筆畫`);
 
         if (strokeCount === 0) {
-            ui.showToast('注意：此作業沒有筆畫紀錄', 'warning');
+            ui.showToast('注意：此作業沒有筆畫紀錄 (檔案可能過大或損毀)', 'warning');
             return;
         }
 
-        // 延遲執行，確保 Modal 渲染完畢
         setTimeout(() => {
-            // 強制設定內部解析度 1000x800，解決裝置大小問題
             canvas.width = 1000;
             canvas.height = 800;
             debug.size(canvas.width, canvas.height);
@@ -373,9 +400,7 @@
             
             if (strokeCount > 0) {
                  replayer.fitToScreen();
-                 // 立即畫出第一幀，確認資料可視
-                 replayer.drawFullStatic();
-                 // 重置播放指針
+                 replayer.drawFullStatic(); 
                  replayer.currentIndex = 0; replayer.currentPoint = 0;
             }
         }, 200);
@@ -384,7 +409,7 @@
       clear: () => {
         if(replayer.animationId) cancelAnimationFrame(replayer.animationId);
         if(replayer.ctx) {
-           replayer.ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置變形矩陣
+           replayer.ctx.setTransform(1, 0, 0, 1, 0, 0); 
            replayer.ctx.clearRect(0, 0, replayer.canvas.width, replayer.canvas.height);
         }
         replayer.currentIndex = 0; replayer.currentPoint = 0;
@@ -401,13 +426,12 @@
              });
           });
 
-          // 如果找不到範圍 (全是空筆畫)，設為預設
           if(minX === Infinity) {
              debug.log("警告: 無效的座標範圍");
              minX = 0; minY = 0; maxX = 1000; maxY = 800;
           }
 
-          debug.log(`座標範圍: (${Math.round(minX)},${Math.round(minY)}) -> (${Math.round(maxX)},${Math.round(maxY)})`);
+          debug.log(`範圍: (${Math.round(minX)},${Math.round(minY)}) -> (${Math.round(maxX)},${Math.round(maxY)})`);
 
           const padding = 50; 
           let dw = maxX - minX; 
@@ -433,7 +457,7 @@
             replayer.ctx.beginPath();
             replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round';
             replayer.ctx.strokeStyle = s.color; replayer.ctx.fillStyle = s.color; 
-            replayer.ctx.lineWidth = Math.max(s.size, 3 / replayer.scale); // 防止線條太細
+            replayer.ctx.lineWidth = Math.max(s.size, 3 / replayer.scale); 
             
             if (s.points.length === 1) {
                 replayer.ctx.arc(s.points[0].x, s.points[0].y, (s.size/2), 0, Math.PI*2); replayer.ctx.fill();
@@ -453,7 +477,7 @@
         }
         
         debug.log("開始播放...");
-        replayer.fitToScreen(); // 重新套用縮放
+        replayer.fitToScreen(); 
 
         const speed = parseInt(document.getElementById('replay-speed').value) || 1;
         let ptsPerFrame = speed * 2; 
@@ -473,7 +497,6 @@
             replayer.ctx.fillStyle = s.color;
             replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round';
 
-            // 處理單點
             if (s.points.length === 1 && replayer.currentPoint === 0) {
                  const p = s.points[0];
                  replayer.ctx.beginPath(); 
@@ -481,7 +504,6 @@
                  replayer.currentIndex++; continue;
             }
 
-            // 處理線段
             if(replayer.currentPoint < s.points.length - 1){
               const p1 = s.points[replayer.currentPoint];
               const p2 = s.points[replayer.currentPoint+1];
