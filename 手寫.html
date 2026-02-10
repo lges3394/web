@@ -18,19 +18,18 @@
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     #canvas-container { cursor: crosshair; background-image: radial-gradient(#E5E7EB 1px, transparent 1px); background-size: 20px 20px; }
     
-    /* 強制畫布填滿，但保持比例 */
+    /* 重播畫布 */
     #replay-canvas {
       width: 100%;
       height: 100%;
       object-fit: contain;
-      background-color: #ffffff; /* 確保背景是白的 */
+      background-color: #ffffff;
     }
   </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden text-gray-800">
 
   <script>
-    // 這裡可以預填您的 GAS 網址
     const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxI80290FjZDaxhjlvFmIZ5JyNuFsSQx0eLLEA6bYrHWsn5u1HNuWAvUnFKpERiNq5lRg/exec"; 
   </script>
 
@@ -133,7 +132,8 @@
   <div id="modal-name" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4 backdrop-blur-sm">
     <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center border-4 border-blue-200">
       <h3 class="text-xl font-bold mb-4 text-blue-600">請輸入你的座號</h3>
-      <input type="number" id="input-student-name" class="w-full text-center text-3xl border-2 border-gray-300 rounded-xl p-3 mb-6 font-mono font-bold" placeholder="例如: 5">
+      <!-- type="tel" 在 iPad 上會叫出數字鍵盤，比 number 好用 -->
+      <input type="tel" id="input-student-name" class="w-full text-center text-3xl border-2 border-gray-300 rounded-xl p-3 mb-6 font-mono font-bold" placeholder="例如: 5">
       <div class="flex gap-2">
         <button onclick="ui.closeModal('modal-name')" class="flex-1 bg-gray-200 text-gray-600 py-3 rounded-xl font-bold">取消</button>
         <button onclick="app.confirmSubmit()" class="flex-1 bg-blue-500 text-white py-3 rounded-xl font-bold shadow-md">送出作業</button>
@@ -151,14 +151,13 @@
       <div id="replay-container" class="relative bg-white flex-1 overflow-hidden flex justify-center items-center bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px]" style="min-height: 300px;">
         <canvas id="replay-canvas" class="shadow-lg border"></canvas>
       </div>
-      <!-- 診斷資訊列 -->
       <div class="bg-gray-800 text-gray-300 text-xs px-4 py-1 font-mono flex justify-between">
         <span id="debug-info">準備就緒...</span>
         <span id="debug-canvas-size">Canvas: -</span>
       </div>
       <div class="p-4 bg-gray-50 border-t flex justify-center items-center gap-4">
         <button id="btn-play" onclick="replayer.play()" class="bg-blue-500 text-white w-12 h-12 rounded-full shadow hover:bg-blue-600 flex items-center justify-center text-xl btn-bounce">
-            <i class="fa-solid fa-play"></i>
+            <i id="play-icon" class="fa-solid fa-play"></i>
         </button>
         <div class="flex items-center gap-2 bg-white px-3 py-1 rounded-lg border shadow-sm">
           <span class="text-xs text-gray-500 font-bold">速度</span>
@@ -188,15 +187,10 @@
   <script>
     const STATE = { gasUrl: "", strokes: [], isDrawing: false };
 
-    // 診斷工具函式
+    // 診斷工具
     const debug = {
-      log: (msg) => {
-        document.getElementById('debug-info').innerText = msg;
-        console.log('[DEBUG]', msg);
-      },
-      size: (w, h) => {
-        document.getElementById('debug-canvas-size').innerText = `Canvas: ${w}x${h}`;
-      }
+      log: (msg) => { document.getElementById('debug-info').innerText = msg; console.log('[DEBUG]', msg); },
+      size: (w, h) => { document.getElementById('debug-canvas-size').innerText = `Canvas: ${w}x${h}`; }
     };
 
     const app = {
@@ -232,10 +226,10 @@
         const name = document.getElementById('input-student-name').value.trim();
         if(!name) { ui.showToast('請輸入座號', 'error'); return; }
         
-        // --- 核心優化：檢查資料大小 ---
+        // --- 優化2：檢查資料量，防止 GAS 錯誤 ---
         const strokesStr = JSON.stringify(STATE.strokes);
         if (strokesStr.length > 45000) {
-           ui.alert('作業太大了', '這份作業的筆畫太多，可能會傳送失敗。\n建議清除部分內容，或分次繪製。', 'warning');
+           ui.alert('作業太大了', '筆畫太多了，建議清除重畫，或是分次交作業。', 'warning');
            return;
         }
 
@@ -254,7 +248,7 @@
       }
     };
 
-    // --- 畫筆核心優化：座標整數化 + 距離過濾 ---
+    // --- 優化1：筆畫瘦身 (整數化 + 距離過濾) ---
     const painter = {
       canvas: null, ctx: null, currentColor: '#000000', currentSize: 5,
       init: () => {
@@ -299,16 +293,16 @@
         e.preventDefault(); 
         const pos = painter.getPos(e);
         
-        // 優化1：只存整數
+        // 優化：只存整數
         pos.x = Math.round(pos.x);
         pos.y = Math.round(pos.y);
 
-        // 優化2：過濾過於密集的點 (距離 < 3px 不存)
+        // 優化：距離過濾 (小於 5px 的移動不紀錄)
         const currentStroke = STATE.strokes[STATE.strokes.length-1];
         if (currentStroke.points.length > 0) {
             const lastPt = currentStroke.points[currentStroke.points.length-1];
-            const dist = Math.hypot(pos.x - lastPt.x, pos.y - lastPt.y);
-            if (dist < 3) return; // 距離太短，跳過不存
+            const dist = Math.abs(pos.x - lastPt.x) + Math.abs(pos.y - lastPt.y); // 曼哈頓距離簡化計算
+            if (dist < 5) return; 
         }
         
         currentStroke.points.push(pos);
@@ -364,103 +358,101 @@
       }
     };
 
+    // --- 優化3：重播器 (正規化引擎) ---
+    // 解決不同螢幕解析度下，畫布變形或空白的問題
     const replayer = {
-      strokes: [], canvas: null, ctx: null, animationId: null, currentIndex: 0, currentPoint: 0, scale: 1,
+      drawStrokes: [], // 處理過、座標正規化後的數據
+      canvas: null, ctx: null, animationId: null, currentIndex: 0, currentPoint: 0, 
       
       open: (idx) => {
         const item = teacher.data[idx];
         const canvas = document.getElementById('replay-canvas');
         document.getElementById('replay-name').innerText = item.name;
         
-        debug.log("載入資料中...");
+        debug.log("載入中...");
         ui.openModal('modal-replay');
 
-        try { 
-            replayer.strokes = JSON.parse(item.strokes); 
-        } catch(e) { 
-            replayer.strokes = []; 
-            debug.log("資料解析失敗: JSON 格式錯誤");
-        }
+        let rawStrokes = [];
+        try { rawStrokes = JSON.parse(item.strokes); } catch(e) { debug.log("JSON 壞了"); }
         
-        const strokeCount = replayer.strokes ? replayer.strokes.length : 0;
-        debug.log(`資料載入完成: ${strokeCount} 筆畫`);
+        const count = rawStrokes ? rawStrokes.length : 0;
+        debug.log(`筆畫: ${count}`);
 
-        if (strokeCount === 0) {
-            ui.showToast('注意：此作業沒有筆畫紀錄 (檔案可能過大或損毀)', 'warning');
+        if (count === 0) {
+            ui.showToast('無筆畫紀錄 (可能資料過大)', 'warning');
             return;
         }
 
+        // 延遲初始化，確保 Modal 打開
         setTimeout(() => {
-            canvas.width = 1000;
+            canvas.width = 1000; // 固定內部解析度
             canvas.height = 800;
             debug.size(canvas.width, canvas.height);
             
             replayer.ctx = canvas.getContext('2d');
             replayer.clear();
             
-            if (strokeCount > 0) {
-                 replayer.fitToScreen();
-                 replayer.drawFullStatic(); 
-                 replayer.currentIndex = 0; replayer.currentPoint = 0;
-            }
+            // 核心：將原始座標「正規化」到 1000x800 的畫布上
+            replayer.normalize(rawStrokes);
+            
+            // 立即畫第一張圖
+            replayer.drawFullStatic();
+            replayer.currentIndex = 0; replayer.currentPoint = 0;
         }, 200);
       },
 
       clear: () => {
         if(replayer.animationId) cancelAnimationFrame(replayer.animationId);
         if(replayer.ctx) {
-           replayer.ctx.setTransform(1, 0, 0, 1, 0, 0); 
+           document.getElementById('play-icon').className = "fa-solid fa-play";
            replayer.ctx.clearRect(0, 0, replayer.canvas.width, replayer.canvas.height);
         }
-        replayer.currentIndex = 0; replayer.currentPoint = 0;
       },
 
-      fitToScreen: () => {
-          if (!replayer.strokes || replayer.strokes.length === 0) return;
-          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      // 正規化：把亂七八糟的座標，依照比例縮放到 0~1000 之間
+      normalize: (strokes) => {
+          replayer.drawStrokes = [];
+          if(!strokes || strokes.length === 0) return;
+
+          let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+          strokes.forEach(s => s.points.forEach(p => {
+             if(p.x<minX) minX=p.x; if(p.y<minY) minY=p.y;
+             if(p.x>maxX) maxX=p.x; if(p.y>maxY) maxY=p.y;
+          }));
+
+          if(minX===Infinity) { minX=0; minY=0; maxX=1000; maxY=800; } // 防呆
+
+          const padding = 50;
+          let dw = maxX - minX; if(dw<1) dw=1;
+          let dh = maxY - minY; if(dh<1) dh=1;
           
-          replayer.strokes.forEach(s => {
-             if(s.points) s.points.forEach(p => {
-               if(p.x < minX) minX = p.x; if(p.y < minY) minY = p.y;
-               if(p.x > maxX) maxX = p.x; if(p.y > maxY) maxY = p.y;
-             });
-          });
-
-          if(minX === Infinity) {
-             debug.log("警告: 無效的座標範圍");
-             minX = 0; minY = 0; maxX = 1000; maxY = 800;
-          }
-
-          debug.log(`範圍: (${Math.round(minX)},${Math.round(minY)}) -> (${Math.round(maxX)},${Math.round(maxY)})`);
-
-          const padding = 50; 
-          let dw = maxX - minX; 
-          let dh = maxY - minY;
-          if (dw < 1) dw = 1; if (dh < 1) dh = 1;
-
-          const cw = replayer.canvas.width; 
+          const cw = replayer.canvas.width;
           const ch = replayer.canvas.height;
-          
           const scale = Math.min((cw - padding*2)/dw, (ch - padding*2)/dh);
-          replayer.scale = scale;
 
           const ox = (cw - dw*scale)/2 - minX*scale;
           const oy = (ch - dh*scale)/2 - minY*scale;
-          
-          replayer.ctx.setTransform(scale, 0, 0, scale, ox, oy);
+
+          // 產生新的數據陣列
+          replayer.drawStrokes = strokes.map(s => ({
+              color: s.color,
+              size: Math.max(s.size, 3 / scale), // 線條不能太細
+              points: s.points.map(p => ({
+                  x: p.x * scale + ox,
+                  y: p.y * scale + oy
+              }))
+          }));
       },
 
       drawFullStatic: () => {
          if(!replayer.ctx) return;
-         replayer.strokes.forEach(s => {
-            if (!s.points || s.points.length === 0) return;
+         replayer.drawStrokes.forEach(s => {
             replayer.ctx.beginPath();
             replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round';
-            replayer.ctx.strokeStyle = s.color; replayer.ctx.fillStyle = s.color; 
-            replayer.ctx.lineWidth = Math.max(s.size, 3 / replayer.scale); 
-            
+            replayer.ctx.strokeStyle = s.color; replayer.ctx.fillStyle = s.color; replayer.ctx.lineWidth = s.size;
+            if (s.points.length === 0) return;
             if (s.points.length === 1) {
-                replayer.ctx.arc(s.points[0].x, s.points[0].y, (s.size/2), 0, Math.PI*2); replayer.ctx.fill();
+                replayer.ctx.arc(s.points[0].x, s.points[0].y, s.size/2, 0, Math.PI*2); replayer.ctx.fill();
             } else {
                 replayer.ctx.moveTo(s.points[0].x, s.points[0].y);
                 for(let i=1; i<s.points.length; i++) replayer.ctx.lineTo(s.points[i].x, s.points[i].y);
@@ -471,44 +463,40 @@
 
       play: () => {
         replayer.clear();
-        if(!replayer.ctx || !replayer.strokes || replayer.strokes.length === 0) {
-            ui.showToast("無資料可播放", "error");
-            return;
-        }
+        if(!replayer.drawStrokes.length) return;
         
-        debug.log("開始播放...");
-        replayer.fitToScreen(); 
+        document.getElementById('play-icon').className = "fa-solid fa-pause"; // 變更圖示
+        debug.log("播放中...");
 
         const speed = parseInt(document.getElementById('replay-speed').value) || 1;
         let ptsPerFrame = speed * 2; 
 
         const loop = () => {
           for(let k=0; k<ptsPerFrame; k++){
-            if(replayer.currentIndex >= replayer.strokes.length) {
-               debug.log("播放結束");
+            if(replayer.currentIndex >= replayer.drawStrokes.length) {
+               debug.log("結束");
+               document.getElementById('play-icon').className = "fa-solid fa-rotate-right"; // 重播圖示
                cancelAnimationFrame(replayer.animationId); return;
             }
-            const s = replayer.strokes[replayer.currentIndex];
-            
-            if (!s.points || s.points.length === 0) { replayer.currentIndex++; continue; }
-            
-            replayer.ctx.lineWidth = Math.max(s.size, 3 / replayer.scale);
-            replayer.ctx.strokeStyle = s.color;
-            replayer.ctx.fillStyle = s.color;
+            const s = replayer.drawStrokes[replayer.currentIndex];
+            if (!s.points.length) { replayer.currentIndex++; continue; }
+
+            replayer.ctx.strokeStyle = s.color; replayer.ctx.fillStyle = s.color;
+            replayer.ctx.lineWidth = s.size;
             replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round';
 
+            // 單點
             if (s.points.length === 1 && replayer.currentPoint === 0) {
-                 const p = s.points[0];
                  replayer.ctx.beginPath(); 
-                 replayer.ctx.arc(p.x, p.y, (s.size/2), 0, Math.PI*2); replayer.ctx.fill();
+                 replayer.ctx.arc(s.points[0].x, s.points[0].y, s.size/2, 0, Math.PI*2); replayer.ctx.fill();
                  replayer.currentIndex++; continue;
             }
 
+            // 線段
             if(replayer.currentPoint < s.points.length - 1){
-              const p1 = s.points[replayer.currentPoint];
-              const p2 = s.points[replayer.currentPoint+1];
               replayer.ctx.beginPath(); 
-              replayer.ctx.moveTo(p1.x, p1.y); replayer.ctx.lineTo(p2.x, p2.y);
+              replayer.ctx.moveTo(s.points[replayer.currentPoint].x, s.points[replayer.currentPoint].y); 
+              replayer.ctx.lineTo(s.points[replayer.currentPoint+1].x, s.points[replayer.currentPoint+1].y);
               replayer.ctx.stroke();
               replayer.currentPoint++;
             } else {
