@@ -798,6 +798,9 @@
             rafId: null,
             ctx: null,
             canvas: null,
+            scale: 1,
+            offsetX: 0,
+            offsetY: 0,
             
             open: (index) => {
                 const item = teacherApp.data[index];
@@ -807,17 +810,70 @@
                 // 準備 Canvas
                 const container = document.getElementById('replay-container');
                 const cvs = document.getElementById('replay-canvas');
-                // 預設一個較大的尺寸，保持比例，或讀取原始數據的範圍
-                // 為了簡化，這裡使用容器當前大小
+                
+                // 1. 設定畫布尺寸 (處理 Retina)
+                const dpr = window.devicePixelRatio || 1;
                 const rect = container.getBoundingClientRect();
-                cvs.width = rect.width;
-                cvs.height = rect.height; // 這裡可以根據原始筆畫比例優化
+                
+                cvs.width = rect.width * dpr;
+                cvs.height = rect.height * dpr;
+                cvs.style.width = `${rect.width}px`;
+                cvs.style.height = `${rect.height}px`;
                 
                 replayApp.ctx = cvs.getContext('2d');
+                replayApp.ctx.scale(dpr, dpr); // 預設縮放
                 replayApp.strokes = item.strokes; // 從數據中獲取筆畫
                 
-                // 正規化座標 (如果學生畫布大小與老師不同)
-                // 這裡暫時假設都使用類似比例，進階版需要儲存畫布尺寸比率
+                // 2. 計算筆畫邊界 (Bounding Box) 以便自動縮放
+                if (replayApp.strokes && replayApp.strokes.length > 0) {
+                    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                    let hasPoints = false;
+
+                    replayApp.strokes.forEach(stroke => {
+                        stroke.points.forEach(p => {
+                            if (p.x < minX) minX = p.x;
+                            if (p.x > maxX) maxX = p.x;
+                            if (p.y < minY) minY = p.y;
+                            if (p.y > maxY) maxY = p.y;
+                            hasPoints = true;
+                        });
+                    });
+
+                    if (hasPoints) {
+                        // 筆畫實際寬高
+                        const drawingW = maxX - minX || 100; // 防止除以0
+                        const drawingH = maxY - minY || 100;
+                        const canvasW = rect.width;
+                        const canvasH = rect.height;
+
+                        // 計算縮放比例 (留 10% 邊距)
+                        const scaleX = (canvasW * 0.9) / drawingW;
+                        const scaleY = (canvasH * 0.9) / drawingH;
+                        
+                        // 選擇較小的比例以確保全部都看得到，且不放大超過 1.5 倍以免太模糊
+                        // 移除 1.5 倍限制，確保所有內容都能縮小進來
+                        replayApp.scale = Math.min(scaleX, scaleY);
+
+                        // 計算置中偏移量
+                        const centerX = (minX + maxX) / 2;
+                        const centerY = (minY + maxY) / 2;
+                        
+                        // 目標中心 (畫布中心)
+                        const targetCenterX = canvasW / 2;
+                        const targetCenterY = canvasH / 2;
+
+                        replayApp.offsetX = targetCenterX - (centerX * replayApp.scale);
+                        replayApp.offsetY = targetCenterY - (centerY * replayApp.scale);
+                    } else {
+                        replayApp.scale = 1;
+                        replayApp.offsetX = 0;
+                        replayApp.offsetY = 0;
+                    }
+                } else {
+                     replayApp.scale = 1;
+                     replayApp.offsetX = 0;
+                     replayApp.offsetY = 0;
+                }
                 
                 replayApp.play();
             },
@@ -830,8 +886,11 @@
             play: () => {
                 cancelAnimationFrame(replayApp.rafId);
                 const ctx = replayApp.ctx;
-                const width = ctx.canvas.width;
-                const height = ctx.canvas.height;
+                
+                // 清除畫布 (使用邏輯像素寬高，因為已經 scale dpr 了)
+                const width = ctx.canvas.width / (window.devicePixelRatio || 1);
+                const height = ctx.canvas.height / (window.devicePixelRatio || 1);
+                
                 ctx.clearRect(0, 0, width, height);
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
@@ -864,13 +923,22 @@
                         if (pointIndex === 0) {
                             ctx.beginPath();
                             ctx.strokeStyle = stroke.color;
-                            ctx.lineWidth = stroke.width; // 這裡可以縮放粗細
-                            ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                            ctx.lineWidth = stroke.width * replayApp.scale; // 線條粗細也要跟著縮放
+                            
+                            // 轉換第一個點
+                            const startX = stroke.points[0].x * replayApp.scale + replayApp.offsetX;
+                            const startY = stroke.points[0].y * replayApp.scale + replayApp.offsetY;
+                            
+                            ctx.moveTo(startX, startY);
                             pointIndex = 1;
                         }
 
                         if (pointIndex < stroke.points.length) {
-                            ctx.lineTo(stroke.points[pointIndex].x, stroke.points[pointIndex].y);
+                            // 轉換下一個點
+                            const nextX = stroke.points[pointIndex].x * replayApp.scale + replayApp.offsetX;
+                            const nextY = stroke.points[pointIndex].y * replayApp.scale + replayApp.offsetY;
+                            
+                            ctx.lineTo(nextX, nextY);
                             ctx.stroke();
                             pointIndex++;
                             currentPointsDrawn++;
@@ -980,7 +1048,7 @@
             open: () => {
                 ui.show('modal-help');
                 // 這裡放入 Code.gs 的內容供複製
-                const codeContent = `// 請將此內容貼到 Google Apps Script (Code.gs)\n\nconst DB_CONFIG = {\n  sheetName: "學生畫布資料",\n  headers: ["時間戳記", "學生姓名", "圖片預覽(Base64)", "筆畫數據(JSON)"]\n};\n\nfunction doGet(e) {\n  const params = e.parameter;\n  const action = params.action;\n  return handleResponse(() => {\n    if (action === "init") return initSheet();\n    else if (action === "read") return readData();\n    else return { status: "error", message: "無效的動作" };\n  });\n}\n\nfunction doPost(e) {\n  return handleResponse(() => {\n    const data = JSON.parse(e.postData.contents);\n    if (data.action === "submit") return saveSubmission(data);\n    return { status: "error", message: "無效的 POST 動作" };\n  });\n}\n\nfunction handleResponse(func) {\n  let result;\n  try { result = func(); } catch (err) { result = { status: "error", message: err.toString() }; }\n  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);\n}\n\nfunction initSheet() {\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  let sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  if (!sheet) sheet = ss.insertSheet(DB_CONFIG.sheetName);\n  const headers = sheet.getRange(1, 1, 1, DB_CONFIG.headers.length).getValues()[0];\n  if (headers[0] !== DB_CONFIG.headers[0]) {\n    sheet.getRange(1, 1, 1, DB_CONFIG.headers.length).setValues([DB_CONFIG.headers]);\n  }\n  return { status: "success", message: "初始化完成" };\n}\n\nfunction saveSubmission(data) {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  sheet.appendRow([new Date(), data.name, data.image, JSON.stringify(data.strokes)]);\n  return { status: "success", message: "作品已送出" };\n}\n\nfunction readData() {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  const lastRow = sheet.getLastRow();\n  if (lastRow <= 1) return { status: "success", data: [] };\n  const values = sheet.getRange(2, 1, lastRow - 1, DB_CONFIG.headers.length).getValues();\n  const result = values.map(row => ({\n    timestamp: row[0],\n    name: row[1],\n    image: row[2],\n    strokes: JSON.parse(row[3] || "[]")\n  })).reverse();\n  return { status: "success", data: result };\n}`;
+                const codeContent = `// 請將此內容貼到 Google Apps Script (Code.gs)\n\nconst DB_CONFIG = {\n  sheetName: "學生畫布資料",\n  headers: ["時間戳記", "學生姓名", "圖片預覽(Base64)", "筆畫數據(JSON)"]\n};\n\nfunction doGet(e) {\n  if (!e || !e.parameter) {\n    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "請部署為 Web App 後測試" })).setMimeType(ContentService.MimeType.JSON);\n  }\n  const params = e.parameter;\n  const action = params.action;\n  return handleResponse(() => {\n    if (action === "init") return initSheet();\n    else if (action === "read") return readData();\n    else return { status: "error", message: "無效的動作" };\n  });\n}\n\nfunction doPost(e) {\n  if (!e || !e.postData) return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "請部署為 Web App 後測試" }));\n  return handleResponse(() => {\n    const data = JSON.parse(e.postData.contents);\n    if (data.action === "submit") return saveSubmission(data);\n    return { status: "error", message: "無效的 POST 動作" };\n  });\n}\n\nfunction handleResponse(func) {\n  let result;\n  try { result = func(); } catch (err) { result = { status: "error", message: err.toString() }; }\n  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);\n}\n\nfunction initSheet() {\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  let sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  if (!sheet) sheet = ss.insertSheet(DB_CONFIG.sheetName);\n  const headers = sheet.getRange(1, 1, 1, DB_CONFIG.headers.length).getValues()[0];\n  if (headers[0] !== DB_CONFIG.headers[0]) {\n    sheet.getRange(1, 1, 1, DB_CONFIG.headers.length).setValues([DB_CONFIG.headers]);\n  }\n  return { status: "success", message: "初始化完成" };\n}\n\nfunction saveSubmission(data) {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  sheet.appendRow([new Date(), data.name, data.image, JSON.stringify(data.strokes)]);\n  return { status: "success", message: "作品已送出" };\n}\n\nfunction readData() {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  const lastRow = sheet.getLastRow();\n  if (lastRow <= 1) return { status: "success", data: [] };\n  const values = sheet.getRange(2, 1, lastRow - 1, DB_CONFIG.headers.length).getValues();\n  const result = values.map(row => ({\n    timestamp: row[0],\n    name: row[1],\n    image: row[2],\n    strokes: JSON.parse(row[3] || "[]")\n  })).reverse();\n  return { status: "success", data: result };\n}`;
                 document.getElementById('gas-code-display').value = codeContent;
             },
             copyCode: () => {
