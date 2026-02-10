@@ -250,7 +250,8 @@
                 <i class="fas fa-user-circle text-6xl text-brand-green mb-4"></i>
                 <h3 class="text-2xl font-bold text-gray-800">請寫上你的座號</h3>
             </div>
-            <input type="text" id="input-student-name" class="w-full text-center text-2xl font-bold border-b-4 border-gray-200 focus:border-brand-green outline-none py-2 mb-8 bg-transparent" placeholder=" " maxlength="10">
+            <!-- 修改：移除了 placeholder="王小明" -->
+            <input type="text" id="input-student-name" class="w-full text-center text-2xl font-bold border-b-4 border-gray-200 focus:border-brand-green outline-none py-2 mb-8 bg-transparent" placeholder="" maxlength="10">
             <button onclick="app.confirmStudentName()" class="w-full bg-brand-green hover:bg-green-600 text-white font-bold py-3 rounded-xl text-xl shadow-lg transition transform active:scale-95">
                 開始畫畫！
             </button>
@@ -259,8 +260,12 @@
 
     <!-- 老師密碼 Modal -->
     <div id="modal-pin" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-brand-bg/90 backdrop-blur-sm">
-        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xs p-6 mx-4 border-4 border-brand-blue">
-            <h3 class="text-xl font-bold text-center text-brand-blue mb-4">老師專用通道</h3>
+        <div class="relative bg-white rounded-3xl shadow-2xl w-full max-w-xs p-6 mx-4 border-4 border-brand-blue">
+            <!-- 新增：回首頁按鈕 -->
+            <button onclick="ui.hide('modal-pin')" class="absolute top-4 left-4 text-gray-400 hover:text-brand-blue transition" title="回上一頁">
+                <i class="fas fa-arrow-left text-xl"></i>
+            </button>
+            <h3 class="text-xl font-bold text-center text-brand-blue mb-4 mt-2">老師專用通道</h3>
             <div class="flex justify-center mb-6">
                 <input type="password" id="pin-input" class="text-center text-3xl tracking-widest w-40 border-b-2 border-brand-blue outline-none" placeholder="****" maxlength="4" inputmode="numeric">
             </div>
