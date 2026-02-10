@@ -22,15 +22,14 @@
 <body class="h-screen flex flex-col overflow-hidden text-gray-800">
 
   <script>
-    // 若要寫死 URL 請填入下方 (選填)
-    const DEFAULT_GAS_URL = ""; 
+    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxI80290FjZDaxhjlvFmIZ5JyNuFsSQx0eLLEA6bYrHWsn5u1HNuWAvUnFKpERiNq5lRg/exec"; 
   </script>
 
   <!-- HEADER -->
   <header class="bg-yellow-400 p-3 shadow-md flex justify-between items-center z-10">
     <div class="flex items-center gap-2">
       <i class="fa-solid fa-palette text-2xl text-white drop-shadow-md"></i>
-      <h1 class="text-xl font-bold text-white drop-shadow-md tracking-wide">快樂畫畫教室</h1>
+      <h1 class="text-xl font-bold text-white drop-shadow-md tracking-wide">快樂手寫教室</h1>
     </div>
     <div class="flex gap-2">
       <button onclick="app.showHelp()" class="bg-white text-yellow-500 rounded-full w-10 h-10 shadow hover:bg-yellow-50 btn-bounce transition"><i class="fa-solid fa-code"></i></button>
@@ -139,7 +138,7 @@
         <h3 class="font-bold text-gray-700"><i class="fa-solid fa-film"></i> 作業重播: <span id="replay-name"></span></h3>
         <button onclick="ui.closeModal('modal-replay')" class="text-gray-500 hover:text-red-500 text-xl"><i class="fa-solid fa-xmark"></i></button>
       </div>
-      <!-- 畫布區：關鍵修復，確保這裡能正確抓到大小 -->
+      <!-- 畫布區 -->
       <div id="replay-container" class="relative bg-white flex-1 overflow-hidden flex justify-center items-center bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px]" style="min-height: 300px;">
         <canvas id="replay-canvas" class="shadow-lg border"></canvas>
       </div>
@@ -161,7 +160,8 @@
     <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 flex flex-col max-h-[90vh]">
       <div class="flex justify-between items-center mb-4"><h3 class="text-xl font-bold">GAS 後端程式碼</h3><button onclick="ui.closeModal('modal-help')"><i class="fa-solid fa-xmark"></i></button></div>
       <div class="bg-yellow-50 p-4 rounded-lg mb-4 text-sm text-gray-700 border border-yellow-200">
-        請確保部署時權限設為「<b>任何人</b>」，並已填入試算表 ID。
+        <p class="font-bold text-red-500 mb-1"><i class="fa-solid fa-circle-exclamation"></i> 如果遇到 "TypeError: Cannot read properties of null..."</p>
+        <p>請務必確認您的 GAS 程式碼中 <b>SPREADSHEET_ID</b> 欄位已經填入正確的試算表 ID，並且已經點擊「部署」->「管理部署作業」->「建立新版本」。</p>
       </div>
       <div class="relative flex-1 overflow-hidden border rounded-lg bg-gray-800">
         <textarea id="gas-code-area" class="w-full h-full bg-gray-800 text-green-400 p-4 font-mono text-xs outline-none resize-none" readonly>/* 程式碼請複製 Code.gs */</textarea>
@@ -286,7 +286,7 @@
           const json = await res.json();
           if(json.status === 'success'){ teacher.data = json.data; teacher.renderList(); }
           else throw new Error(json.message);
-        } catch(e) { l.innerHTML = `<div class="text-red-500 col-span-full text-center">載入失敗: ${e.message}</div>`; }
+        } catch(e) { l.innerHTML = `<div class="text-red-500 col-span-full text-center">載入失敗: ${e.message}<br><span class="text-xs text-gray-500">(請檢查 GAS 後端 SPREADSHEET_ID 是否設定)</span></div>`; }
       },
       renderList: () => {
         const l = document.getElementById('submission-list'); l.innerHTML = '';
@@ -301,50 +301,91 @@
       }
     };
 
+    // --- 關鍵修復：重播器 (Replayer) ---
+    // 加入自動縮放 (Auto-Fit) 與 分段繪製邏輯
     const replayer = {
       strokes: [], canvas: null, ctx: null, animationId: null, currentIndex: 0, currentPoint: 0,
+      
       open: (idx) => {
         const item = teacher.data[idx];
         const canvas = document.getElementById('replay-canvas');
         document.getElementById('replay-name').innerText = item.name;
         
-        // 關鍵修復：先顯示 Modal，瀏覽器才能計算尺寸
         ui.openModal('modal-replay');
 
         try { replayer.strokes = JSON.parse(item.strokes); } catch(e) { replayer.strokes = []; }
 
-        // 延遲一點點再設定畫布大小，確保 display:block 已生效
         setTimeout(() => {
             const container = canvas.parentElement;
-            canvas.width = container.clientWidth || 800; // 預防萬一取不到
+            canvas.width = container.clientWidth || 800;
             canvas.height = container.clientHeight || 600;
             replayer.ctx = canvas.getContext('2d');
             replayer.clear();
         }, 50);
       },
+
       clear: () => {
         if(replayer.animationId) cancelAnimationFrame(replayer.animationId);
-        if(replayer.ctx) replayer.ctx.clearRect(0, 0, replayer.canvas.width, replayer.canvas.height);
+        if(replayer.ctx) {
+           replayer.ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置矩陣
+           replayer.ctx.clearRect(0, 0, replayer.canvas.width, replayer.canvas.height);
+        }
         replayer.currentIndex = 0; replayer.currentPoint = 0;
       },
+
       play: () => {
         replayer.clear();
-        if(!replayer.ctx) return;
+        if(!replayer.ctx || replayer.strokes.length === 0) return;
+
+        // 1. 自動計算縮放 (Auto-Fit Logic)
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        replayer.strokes.forEach(s => s.points.forEach(p => {
+           if(p.x < minX) minX = p.x; if(p.y < minY) minY = p.y;
+           if(p.x > maxX) maxX = p.x; if(p.y > maxY) maxY = p.y;
+        }));
+        
+        // 如果有畫筆跡，進行縮放
+        if(minX !== Infinity) {
+           const padding = 20;
+           const dw = maxX - minX; const dh = maxY - minY;
+           const cw = replayer.canvas.width; const ch = replayer.canvas.height;
+           const scale = Math.min((cw - padding*2)/dw, (ch - padding*2)/dh, 1);
+           const ox = (cw - dw*scale)/2 - minX*scale;
+           const oy = (ch - dh*scale)/2 - minY*scale;
+           replayer.ctx.setTransform(scale, 0, 0, scale, ox, oy);
+        }
+
         const speed = parseInt(document.getElementById('replay-speed').value);
         let ptsPerFrame = speed * 2;
+
         const loop = () => {
           for(let k=0; k<ptsPerFrame; k++){
-            if(replayer.currentIndex >= replayer.strokes.length) return;
-            const s = replayer.strokes[replayer.currentIndex];
-            if(replayer.currentPoint === 0){
-              replayer.ctx.beginPath(); replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round'; replayer.ctx.strokeStyle = s.color; replayer.ctx.lineWidth = s.size;
-              if(s.points.length>0) replayer.ctx.moveTo(s.points[0].x, s.points[0].y);
+            if(replayer.currentIndex >= replayer.strokes.length) {
+               cancelAnimationFrame(replayer.animationId); return;
             }
-            if(replayer.currentPoint < s.points.length){
-              replayer.ctx.lineTo(s.points[replayer.currentPoint].x, s.points[replayer.currentPoint].y);
-              replayer.ctx.stroke(); replayer.currentPoint++;
+            const s = replayer.strokes[replayer.currentIndex];
+            
+            // 處理單點 (Dots)
+            if (s.points.length === 1 && replayer.currentPoint === 0) {
+                 const p = s.points[0];
+                 replayer.ctx.beginPath(); replayer.ctx.fillStyle = s.color;
+                 replayer.ctx.arc(p.x, p.y, s.size/2, 0, Math.PI*2); replayer.ctx.fill();
+                 replayer.currentIndex++; continue;
+            }
+            if (s.points.length === 0) { replayer.currentIndex++; continue; }
+
+            // 處理線段
+            if(replayer.currentPoint < s.points.length - 1){
+              const p1 = s.points[replayer.currentPoint];
+              const p2 = s.points[replayer.currentPoint+1];
+              replayer.ctx.beginPath(); 
+              replayer.ctx.lineCap = 'round'; replayer.ctx.lineJoin = 'round'; 
+              replayer.ctx.strokeStyle = s.color; replayer.ctx.lineWidth = s.size;
+              replayer.ctx.moveTo(p1.x, p1.y); replayer.ctx.lineTo(p2.x, p2.y);
+              replayer.ctx.stroke();
+              replayer.currentPoint++;
             } else {
-              replayer.currentIndex++; replayer.currentPoint = 0; replayer.ctx.beginPath();
+              replayer.currentIndex++; replayer.currentPoint = 0;
             }
           }
           replayer.animationId = requestAnimationFrame(loop);
