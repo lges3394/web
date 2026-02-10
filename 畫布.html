@@ -703,24 +703,37 @@
 
             getCompressedImage: (maxWidth) => {
                 const cvs = state.canvas;
-                // 創建一個臨時 canvas 來調整大小
+                
+                // 修正：必須使用 Canvas 的物理像素尺寸 (width/height 屬性)，而非 CSS 尺寸
+                // 否則在高解析度螢幕 (Retina) 下只會截取到左上角的一部分
+                const sourceWidth = cvs.width;
+                const sourceHeight = cvs.height;
+                
+                // 計算目標寬高 (保持比例)
+                // 我們希望縮圖不要太大，所以用 maxWidth (例如 800px) 作為基準
+                // 如果原始物理解析度很大 (例如 iPad Pro 可能 2732px)，縮小到 800px
+                let targetWidth = maxWidth;
+                let targetHeight = (sourceHeight / sourceWidth) * maxWidth;
+                
+                // 如果原圖本身就比 maxWidth 小，則不放大，維持原尺寸
+                if (sourceWidth < maxWidth) {
+                    targetWidth = sourceWidth;
+                    targetHeight = sourceHeight;
+                }
+                
                 const tmpCanvas = document.createElement('canvas');
-                const scale = maxWidth / cvs.width; // 注意：cvs.width 是物理像素
-                // 實際邏輯寬度
-                const logicalWidth = cvs.width / (window.devicePixelRatio || 1);
-                const logicalHeight = cvs.height / (window.devicePixelRatio || 1);
-                
-                const targetWidth = Math.min(logicalWidth, maxWidth);
-                const targetHeight = logicalHeight * (targetWidth / logicalWidth);
-                
                 tmpCanvas.width = targetWidth;
                 tmpCanvas.height = targetHeight;
                 
                 const ctx = tmpCanvas.getContext('2d');
-                // 填滿白色背景 (避免透明圖變成黑色)
+                
+                // 1. 填滿白色背景
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillRect(0, 0, targetWidth, targetHeight);
-                ctx.drawImage(cvs, 0, 0, logicalWidth, logicalHeight, 0, 0, targetWidth, targetHeight);
+                
+                // 2. 繪製縮圖
+                // 關鍵修正：來源矩形使用 sourceWidth, sourceHeight (完整的物理像素範圍)
+                ctx.drawImage(cvs, 0, 0, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
                 
                 return tmpCanvas.toDataURL('image/jpeg', 0.8);
             }
