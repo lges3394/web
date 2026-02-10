@@ -163,11 +163,14 @@
                     <button onclick="app.goHome()" class="mr-3 hover:bg-white/20 p-2 rounded-full transition">
                         <i class="fas fa-home"></i>
                     </button>
-                    <h2 class="font-bold text-xl">作品繳交區</h2>
+                    <h2 class="font-bold text-xl hidden md:block">作品繳交區</h2>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <span id="teacher-status" class="text-sm bg-blue-700 px-2 py-1 rounded">準備就緒</span>
-                    <button onclick="teacherApp.fetchData()" class="bg-white text-brand-blue p-2 px-4 rounded-lg font-bold hover:bg-blue-50 transition shadow">
+                <div class="flex items-center space-x-2">
+                    <span id="teacher-status" class="text-xs md:text-sm bg-blue-700 px-2 py-1 rounded hidden sm:inline-block">準備就緒</span>
+                    <button onclick="teacherApp.deleteAll()" class="bg-red-500 text-white p-2 px-3 rounded-lg font-bold hover:bg-red-600 transition shadow text-sm">
+                        <i class="fas fa-trash-alt mr-1"></i> 全部清除
+                    </button>
+                    <button onclick="teacherApp.fetchData()" class="bg-white text-brand-blue p-2 px-3 rounded-lg font-bold hover:bg-blue-50 transition shadow text-sm">
                         <i class="fas fa-sync-alt mr-1"></i> 重新整理
                     </button>
                 </div>
@@ -802,6 +805,60 @@
                     ui.loading(false);
                 }
             },
+            
+            deleteAll: async () => {
+                if(!confirm('⚠️ 警告：這將會刪除所有學生的作品，且無法復原！\n\n確定要全部清除嗎？')) return;
+                
+                ui.loading(true, "正在刪除所有作品...");
+                try {
+                    const response = await fetch(state.gasUrl, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: "deleteAll" })
+                    });
+                    const result = await response.json();
+                    
+                    if(result.status === 'success') {
+                        ui.showModal("清除完成", "所有作品已清空", "success");
+                        teacherApp.fetchData();
+                    } else {
+                        throw new Error(result.message);
+                    }
+                } catch (error) {
+                    ui.showModal("刪除失敗", error.message, "error");
+                    ui.loading(false);
+                }
+            },
+
+            deleteItem: async (index, event) => {
+                event.stopPropagation(); // 阻止冒泡觸發卡片點擊
+                const item = teacherApp.data[index];
+                
+                if(!confirm(`確定要刪除 ${item.name} 的作品嗎？`)) return;
+                
+                ui.loading(true, "刪除中...");
+                try {
+                    const response = await fetch(state.gasUrl, {
+                        method: 'POST',
+                        body: JSON.stringify({ 
+                            action: "delete",
+                            timestamp: item.timestamp
+                        })
+                    });
+                    const result = await response.json();
+                    
+                    if(result.status === 'success') {
+                        // 移除本地數據並重新渲染，省去重抓的時間
+                        teacherApp.data.splice(index, 1);
+                        teacherApp.renderGrid();
+                        ui.loading(false);
+                    } else {
+                        throw new Error(result.message);
+                    }
+                } catch (error) {
+                    ui.showModal("刪除失敗", error.message, "error");
+                    ui.loading(false);
+                }
+            },
 
             renderGrid: () => {
                 const grid = document.getElementById('gallery-grid');
@@ -820,7 +877,7 @@
                     const timeStr = `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
                     
                     const card = document.createElement('div');
-                    card.className = "bg-white rounded-xl shadow hover:shadow-xl transition transform hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100";
+                    card.className = "bg-white rounded-xl shadow hover:shadow-xl transition transform hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 group relative";
                     card.onclick = () => replayApp.open(index);
                     
                     // 這裡也調整了預覽圖的高度為 h-32，讓卡片更小巧
@@ -831,9 +888,14 @@
                                 <i class="fas fa-play-circle mr-1"></i> 重播
                             </div>
                         </div>
-                        <div class="p-2">
-                            <h3 class="font-bold text-gray-800 text-base truncate">${item.name}</h3>
-                            <p class="text-xs text-gray-400 mt-1"><i class="far fa-clock"></i> ${timeStr}</p>
+                        <div class="p-2 flex justify-between items-center">
+                            <div class="overflow-hidden">
+                                <h3 class="font-bold text-gray-800 text-base truncate">${item.name}</h3>
+                                <p class="text-xs text-gray-400 mt-1"><i class="far fa-clock"></i> ${timeStr}</p>
+                            </div>
+                            <button onclick="teacherApp.deleteItem(${index}, event)" class="text-gray-300 hover:text-red-500 p-2 rounded-full transition" title="刪除作品">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
                         </div>
                     `;
                     grid.appendChild(card);
