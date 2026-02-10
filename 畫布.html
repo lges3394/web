@@ -63,7 +63,7 @@
 
     <!-- 用於硬編碼的 GAS URL (如果老師想直接修改檔案) -->
     <script>
-        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyx3OzSugZOMUGiDZ0GXo3TwiwUhEswc9eO-gVuYIKwJK80EvC6iJV7fmhyocGUQR62/exec"; // 若不想每次輸入，請將部署後的 URL 貼在雙引號內
+        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyx3OzSugZOMUGiDZ0GXo3TwiwUhEswc9eO-gVuYIKwJK80EvC6iJV7fmhyocGUQR62/exec"; 
     </script>
 
     <!-- ================= 頁面路由管理 ================= -->
@@ -178,7 +178,6 @@
 
             <!-- 作品列表 -->
             <div class="flex-grow p-4 overflow-y-auto">
-                <!-- 調整 Grid 讓他更小更密集：Grid-Cols-4/5, Image H-32 -->
                 <div id="gallery-grid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
                     <!-- 作品卡片將由 JS 插入 -->
                 </div>
@@ -880,7 +879,7 @@
                     card.className = "bg-white rounded-xl shadow hover:shadow-xl transition transform hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 group relative";
                     card.onclick = () => replayApp.open(index);
                     
-                    // 這裡也調整了預覽圖的高度為 h-32，讓卡片更小巧
+                    // 卡片內容
                     card.innerHTML = `
                         <div class="h-32 bg-gray-100 overflow-hidden relative">
                             <img src="${item.image}" class="w-full h-full object-contain p-2">
@@ -962,8 +961,7 @@
                         const scaleX = (canvasW * 0.9) / drawingW;
                         const scaleY = (canvasH * 0.9) / drawingH;
                         
-                        // 選擇較小的比例以確保全部都看得到，且不放大超過 1.5 倍以免太模糊
-                        // 移除 1.5 倍限制，確保所有內容都能縮小進來
+                        // 選擇較小的比例以確保全部都看得到
                         replayApp.scale = Math.min(scaleX, scaleY);
 
                         // 計算置中偏移量
@@ -1160,7 +1158,7 @@
             open: () => {
                 ui.show('modal-help');
                 // 這裡放入 Code.gs 的內容供複製
-                const codeContent = `// 請將此內容貼到 Google Apps Script (Code.gs)\n\nconst DB_CONFIG = {\n  sheetName: "學生畫布資料",\n  headers: ["時間戳記", "學生姓名", "圖片預覽(Base64)", "筆畫數據(JSON)"]\n};\n\nfunction doGet(e) {\n  if (!e || !e.parameter) {\n    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "請部署為 Web App 後測試" })).setMimeType(ContentService.MimeType.JSON);\n  }\n  const params = e.parameter;\n  const action = params.action;\n  return handleResponse(() => {\n    if (action === "init") return initSheet();\n    else if (action === "read") return readData();\n    else return { status: "error", message: "無效的動作" };\n  });\n}\n\nfunction doPost(e) {\n  if (!e || !e.postData) return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "請部署為 Web App 後測試" }));\n  return handleResponse(() => {\n    const data = JSON.parse(e.postData.contents);\n    if (data.action === "submit") return saveSubmission(data);\n    return { status: "error", message: "無效的 POST 動作" };\n  });\n}\n\nfunction handleResponse(func) {\n  let result;\n  try { result = func(); } catch (err) { result = { status: "error", message: err.toString() }; }\n  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);\n}\n\nfunction initSheet() {\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  let sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  if (!sheet) sheet = ss.insertSheet(DB_CONFIG.sheetName);\n  const headers = sheet.getRange(1, 1, 1, DB_CONFIG.headers.length).getValues()[0];\n  if (headers[0] !== DB_CONFIG.headers[0]) {\n    sheet.getRange(1, 1, 1, DB_CONFIG.headers.length).setValues([DB_CONFIG.headers]);\n  }\n  return { status: "success", message: "初始化完成" };\n}\n\nfunction saveSubmission(data) {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  sheet.appendRow([new Date(), data.name, data.image, JSON.stringify(data.strokes)]);\n  return { status: "success", message: "作品已送出" };\n}\n\nfunction readData() {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  const lastRow = sheet.getLastRow();\n  if (lastRow <= 1) return { status: "success", data: [] };\n  const values = sheet.getRange(2, 1, lastRow - 1, DB_CONFIG.headers.length).getValues();\n  const result = values.map(row => ({\n    timestamp: row[0],\n    name: row[1],\n    image: row[2],\n    strokes: JSON.parse(row[3] || "[]")\n  })).reverse();\n  return { status: "success", data: result };\n}`;
+                const codeContent = `// 請將此內容貼到 Google Apps Script (Code.gs)\n\nconst DB_CONFIG = {\n  sheetName: "學生畫布資料",\n  headers: ["時間戳記", "學生姓名", "圖片預覽(Base64)", "筆畫數據(JSON)"]\n};\n\nfunction doGet(e) {\n  if (!e || !e.parameter) {\n    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "請部署為 Web App 後測試" })).setMimeType(ContentService.MimeType.JSON);\n  }\n  const params = e.parameter;\n  const action = params.action;\n  return handleResponse(() => {\n    if (action === "init") return initSheet();\n    else if (action === "read") return readData();\n    else return { status: "error", message: "無效的動作" };\n  });\n}\n\nfunction doPost(e) {\n  if (!e || !e.postData) return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "請部署為 Web App 後測試" }));\n  return handleResponse(() => {\n    const data = JSON.parse(e.postData.contents);\n    if (data.action === "submit") return saveSubmission(data);\n    if (data.action === "delete") return deleteSubmission(data);\n    if (data.action === "deleteAll") return deleteAllSubmissions();\n    return { status: "error", message: "無效的 POST 動作" };\n  });\n}\n\nfunction handleResponse(func) {\n  let result;\n  try { result = func(); } catch (err) { result = { status: "error", message: err.toString() }; }\n  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);\n}\n\nfunction initSheet() {\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  let sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  if (!sheet) sheet = ss.insertSheet(DB_CONFIG.sheetName);\n  const headers = sheet.getRange(1, 1, 1, DB_CONFIG.headers.length).getValues()[0];\n  if (headers[0] !== DB_CONFIG.headers[0]) {\n    sheet.getRange(1, 1, 1, DB_CONFIG.headers.length).setValues([DB_CONFIG.headers]);\n  }\n  return { status: "success", message: "初始化完成" };\n}\n\nfunction saveSubmission(data) {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  sheet.appendRow([new Date(), data.name, data.image, JSON.stringify(data.strokes)]);\n  return { status: "success", message: "作品已送出" };\n}\n\nfunction deleteSubmission(data) {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  const rows = sheet.getDataRange().getValues();\n  const targetTime = new Date(data.timestamp).getTime();\n  for (let i = rows.length - 1; i >= 1; i--) {\n    const cellTime = new Date(rows[i][0]).getTime();\n    if (Math.abs(cellTime - targetTime) < 2000) {\n       sheet.deleteRow(i + 1);\n       return { status: "success", message: "刪除成功" };\n    }\n  }\n  return { status: "error", message: "找不到該筆資料" };\n}\n\nfunction deleteAllSubmissions() {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  const lastRow = sheet.getLastRow();\n  if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);\n  return { status: "success", message: "已清空所有作品" };\n}\n\nfunction readData() {\n  initSheet();\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  const sheet = ss.getSheetByName(DB_CONFIG.sheetName);\n  const lastRow = sheet.getLastRow();\n  if (lastRow <= 1) return { status: "success", data: [] };\n  const values = sheet.getRange(2, 1, lastRow - 1, DB_CONFIG.headers.length).getValues();\n  const result = values.map(row => ({\n    timestamp: row[0],\n    name: row[1],\n    image: row[2],\n    strokes: JSON.parse(row[3] || "[]")\n  })).reverse();\n  return { status: "success", data: result };\n}`;
                 document.getElementById('gas-code-display').value = codeContent;
             },
             copyCode: () => {
