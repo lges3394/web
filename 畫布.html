@@ -925,16 +925,27 @@
                 
                 // 準備 Canvas
                 const container = document.getElementById('replay-container');
+                const wrapper = container.parentElement; // 獲取外層容器 (flex-grow 的那個 div)
                 const cvs = document.getElementById('replay-canvas');
                 
                 // 1. 設定畫布尺寸 (處理 Retina)
                 const dpr = window.devicePixelRatio || 1;
-                const rect = container.getBoundingClientRect();
                 
-                cvs.width = rect.width * dpr;
-                cvs.height = rect.height * dpr;
-                cvs.style.width = `${rect.width}px`;
-                cvs.style.height = `${rect.height}px`;
+                // 修改：基於 wrapper (父層可用空間) 來計算尺寸，而不是 container 自身的內容尺寸
+                // 這樣可以讓畫布盡可能填滿螢幕
+                const rect = wrapper.getBoundingClientRect();
+                // 扣除 padding (p-4 = 1rem = 16px, 兩邊共 32px)
+                const width = rect.width - 32;
+                const height = rect.height - 32;
+
+                // 強制設定 container 大小
+                container.style.width = `${width}px`;
+                container.style.height = `${height}px`;
+                
+                cvs.width = width * dpr;
+                cvs.height = height * dpr;
+                cvs.style.width = `${width}px`;
+                cvs.style.height = `${height}px`;
                 
                 replayApp.ctx = cvs.getContext('2d');
                 replayApp.ctx.scale(dpr, dpr); // 預設縮放
@@ -959,8 +970,8 @@
                         // 筆畫實際寬高
                         const drawingW = maxX - minX || 100; // 防止除以0
                         const drawingH = maxY - minY || 100;
-                        const canvasW = rect.width;
-                        const canvasH = rect.height;
+                        const canvasW = width;
+                        const canvasH = height;
 
                         // 計算縮放比例 (留 10% 邊距)
                         const scaleX = (canvasW * 0.9) / drawingW;
